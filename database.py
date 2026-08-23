@@ -6,12 +6,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-INSTANCE_CONNECTION_NAME = os.getenv("INSTANCE_CONNECTION_NAME")
+INSTANCE_CONNECTION_NAME = os.getenv("INSTANCE_CONNECTION_NAME", "curling-mobile-game:asia-south1:curling-db")
 DB_TYPE = os.getenv("DB_TYPE", "mysql").lower()
-DB_USER = os.getenv("DB_USER", "root")
+DB_USER = os.getenv("DB_USER", "siddhi")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 DB_NAME = os.getenv("DB_NAME", "curling_db")
-DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
+DB_HOST = os.getenv("DB_HOST", "34.14.133.235")
 DB_PORT = os.getenv("DB_PORT", "3306" if "mysql" in DB_TYPE else "5432")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -25,7 +25,7 @@ if not DATABASE_URL:
             DATABASE_URL = f"postgresql+psycopg2://{auth_str}@/{DB_NAME}?host=/cloudsql/{INSTANCE_CONNECTION_NAME}"
         else:
             DATABASE_URL = f"mysql+pymysql://{auth_str}@/{DB_NAME}?unix_socket=/cloudsql/{INSTANCE_CONNECTION_NAME}"
-    elif os.getenv("DB_HOST"):
+    elif DB_HOST:
         if "postgres" in DB_TYPE:
             DATABASE_URL = f"postgresql+psycopg2://{auth_str}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
         else:
