@@ -3,11 +3,17 @@ import models
 from database import engine
 from routers import pvp_ws, leaderboard, auth, users, gamedata
 
-# Auto-create all tables in Cloud SQL
+from sqlalchemy import text
+
+# Auto-create all tables and ensure schema migrations in Cloud SQL
 try:
     models.Base.metadata.create_all(bind=engine)
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE gd_challenge_module ADD COLUMN IF NOT EXISTS linked_gd_feature INTEGER;"))
+        conn.execute(text("ALTER TABLE gd_pvp_module ADD COLUMN IF NOT EXISTS linked_gd_feature INTEGER;"))
+        conn.commit()
 except Exception as e:
-    print(f"[Database] Warning creating tables on startup: {e}")
+    print(f"[Database] Startup schema migration: {e}")
 
 app = FastAPI(title="Curling Mobile Game Backend Services")
 

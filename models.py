@@ -335,7 +335,7 @@ class GdPvpModule(Base):
     gd_pvp_module_name = Column(String, index=True)
     is_enabled = Column(Boolean, default=True)
     is_gd_pvp_module = Column(Boolean, default=True)
-    gd_pvp_module_shortcode = Column(String)
+    gd_pvp_module_shortcode = Column(String, nullable=True)
     linked_gd_feature = Column(Integer, ForeignKey("gd_feature.id", ondelete="CASCADE"), nullable=True)
     gd_pvp_module_description = Column(String, nullable=True)
 
@@ -387,7 +387,7 @@ class GdChallengeModule(Base):
     gd_challenge_module_name = Column(String, index=True)
     is_enabled = Column(Boolean, default=True)
     is_gd_challenge_module = Column(Boolean, default=True)
-    gd_challenge_module_shortcode = Column(String)
+    gd_challenge_module_shortcode = Column(String, nullable=True)
     linked_gd_feature = Column(Integer, ForeignKey("gd_feature.id", ondelete="CASCADE"), nullable=True)
     gd_challenge_module_description = Column(String, nullable=True)
 
