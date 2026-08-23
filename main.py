@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 import models
 from database import engine
-from routers import pvp_ws, leaderboard, auth
+from routers import pvp_ws, leaderboard, auth, users, gamedata
 
-# Auto-create all tables in Cloud SQL PostgreSQL
+# Auto-create all tables in Cloud SQL
 try:
     models.Base.metadata.create_all(bind=engine)
 except Exception as e:
@@ -12,15 +12,18 @@ except Exception as e:
 app = FastAPI(title="Curling Mobile Game Backend Services")
 
 # Register core routers
+app.include_router(gamedata.router)
 app.include_router(pvp_ws.router)
 app.include_router(leaderboard.router)
 app.include_router(auth.router)
+app.include_router(users.router)
 
 @app.get("/")
 def read_root():
     return {
         "service": "Curling Mobile Game Backend",
         "status": "online",
+        "rest_api": "/rest/v1/{table_name}",
         "pvp_websocket": "/ws/matchmaking",
         "leaderboard": "/leaderboard",
         "auth": "/auth/google"

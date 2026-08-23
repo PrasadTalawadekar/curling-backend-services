@@ -37,7 +37,10 @@ def authenticate_google_user(req: GoogleAuthRequest, db: Session = Depends(get_d
     # Check if user already exists
     user = db.query(models.UdUserMaster).filter(models.UdUserMaster.ud_user_master_gmail_id == google_id).first()
     if not user:
+        from routers.users import generate_unique_user_id
+        new_id = generate_unique_user_id(db)
         user = models.UdUserMaster(
+            id=new_id,
             auth_id=google_id,
             ud_user_master_name=name,
             ud_user_master_display_name=name,
@@ -48,7 +51,13 @@ def authenticate_google_user(req: GoogleAuthRequest, db: Session = Depends(get_d
         db.commit()
         db.refresh(user)
 
-        # Create initial stats record
+        # Create initial wallet & stats record
+        wallet = models.UdUserWallet(
+            linked_ud_user_master=user.id,
+            ud_user_wallet_currency_dictionary={"coins": 500, "gems": 10}
+        )
+        db.add(wallet)
+
         stats = models.UdUserStats(linked_ud_user_master=user.id)
         db.add(stats)
         db.commit()

@@ -1,4 +1,5 @@
 import os
+import urllib.parse
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from dotenv import load_dotenv
@@ -6,20 +7,30 @@ from dotenv import load_dotenv
 load_dotenv()
 
 INSTANCE_CONNECTION_NAME = os.getenv("INSTANCE_CONNECTION_NAME")
-DB_USER = os.getenv("DB_USER", "postgres")
+DB_TYPE = os.getenv("DB_TYPE", "mysql").lower()
+DB_USER = os.getenv("DB_USER", "root")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-DB_NAME = os.getenv("DB_NAME", "postgres")
+DB_NAME = os.getenv("DB_NAME", "curling_db")
+DB_HOST = os.getenv("DB_HOST", "127.0.0.1")
+DB_PORT = os.getenv("DB_PORT", "3306" if "mysql" in DB_TYPE else "5432")
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+user_enc = urllib.parse.quote_plus(DB_USER)
+pwd_enc = urllib.parse.quote_plus(DB_PASSWORD)
+auth_str = f"{user_enc}:{pwd_enc}" if DB_PASSWORD else user_enc
 
 if not DATABASE_URL:
     if INSTANCE_CONNECTION_NAME and os.path.exists(f"/cloudsql/{INSTANCE_CONNECTION_NAME}"):
-        # Google Cloud Run Unix socket connection to Cloud SQL
-        DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@/{DB_NAME}?host=/cloudsql/{INSTANCE_CONNECTION_NAME}"
+        if "postgres" in DB_TYPE:
+            DATABASE_URL = f"postgresql+psycopg2://{auth_str}@/{DB_NAME}?host=/cloudsql/{INSTANCE_CONNECTION_NAME}"
+        else:
+            DATABASE_URL = f"mysql+pymysql://{auth_str}@/{DB_NAME}?unix_socket=/cloudsql/{INSTANCE_CONNECTION_NAME}"
     elif os.getenv("DB_HOST"):
-        # Direct TCP connection
-        DATABASE_URL = f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', '5432')}/{DB_NAME}"
+        if "postgres" in DB_TYPE:
+            DATABASE_URL = f"postgresql+psycopg2://{auth_str}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+        else:
+            DATABASE_URL = f"mysql+pymysql://{auth_str}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     else:
-        # Safe fallback
         DATABASE_URL = "sqlite:///./game_service.db"
 
 connect_args = {"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
