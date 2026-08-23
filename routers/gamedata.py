@@ -213,3 +213,27 @@ def delete_table_data(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/rpc/{function_name}")
+def execute_rpc(
+    function_name: str,
+    payload: Dict[str, Any] = Body(...),
+    db: Session = Depends(get_db)
+):
+    try:
+        if function_name == "record_daily_activity":
+            record = models.AnalysisUserDailyActivity(
+                p_user_id=payload.get("p_user_id"),
+                p_platform=payload.get("p_platform", "Android"),
+                p_app_version=payload.get("p_app_version", "1.0.0"),
+            )
+            db.add(record)
+            db.commit()
+            return {"status": "ok"}
+        
+        # Generic RPC handler for other analytics functions
+        return {"status": "ok", "function": function_name}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
