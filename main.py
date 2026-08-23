@@ -3,15 +3,20 @@ import models
 from database import engine
 from routers import pvp_ws, leaderboard, auth, users, gamedata
 
-from sqlalchemy import text
+from sqlalchemy import text, inspect as sa_inspect
 
 # Auto-create all tables and ensure schema migrations in Cloud SQL
 try:
     models.Base.metadata.create_all(bind=engine)
-    with engine.connect() as conn:
-        conn.execute(text("ALTER TABLE gd_challenge_module ADD COLUMN IF NOT EXISTS linked_gd_feature INTEGER;"))
-        conn.execute(text("ALTER TABLE gd_pvp_module ADD COLUMN IF NOT EXISTS linked_gd_feature INTEGER;"))
-        conn.commit()
+    inspector = sa_inspect(engine)
+    for tbl in ['gd_challenge_module', 'gd_pvp_module']:
+        if tbl in inspector.get_table_names():
+            cols = [c['name'] for c in inspector.get_columns(tbl)]
+            if 'linked_gd_feature' not in cols:
+                with engine.connect() as conn:
+                    conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN linked_gd_feature INT NULL;"))
+                    conn.commit()
+                    print(f"[Schema] Added linked_gd_feature to {tbl}")
 except Exception as e:
     print(f"[Database] Startup schema migration: {e}")
 

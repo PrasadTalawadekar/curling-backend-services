@@ -87,10 +87,35 @@ def get_table_data(
     if not model_cls:
         raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
     
-    query = db.query(model_cls)
-    query = apply_query_filters(query, model_cls, dict(request.query_params))
-    records = query.all()
-    return [serialize_model(r) for r in records]
+    try:
+        query = db.query(model_cls)
+        query = apply_query_filters(query, model_cls, dict(request.query_params))
+        records = query.all()
+        return [serialize_model(r) for r in records]
+    except Exception as e:
+        db.rollback()
+        # Fallback: query only columns that exist in the physical table
+        try:
+            from sqlalchemy import inspect as sa_inspect
+            inspector = sa_inspect(db.bind)
+            existing_cols = {c['name'] for c in inspector.get_columns(table_name)}
+            if not existing_cols:
+                return []
+            cols_to_select = [getattr(model_cls, c) for c in existing_cols if hasattr(model_cls, c)]
+            raw_records = db.query(*cols_to_select).all()
+            result = []
+            for r in raw_records:
+                d = {}
+                for col in cols_to_select:
+                    val = getattr(r, col.key, getattr(r, col.name, None))
+                    if hasattr(val, 'isoformat'):
+                        val = val.isoformat()
+                    d[col.name] = val
+                result.append(d)
+            return result
+        except Exception:
+            db.rollback()
+            return []
 
 @router.post("/{table_name}")
 def create_table_data(
