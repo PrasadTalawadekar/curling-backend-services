@@ -109,6 +109,14 @@ def create_table_data(
         valid_cols = {c.name for c in model_cls.__table__.columns}
         clean_item = {k: v for k, v in item.items() if k in valid_cols}
         
+        if table_name == "ud_user_master" and "id" not in clean_item:
+            import random
+            while True:
+                candidate_id = random.randint(100_000_000, 999_999_999)
+                if not db.query(models.UdUserMaster).filter(models.UdUserMaster.id == candidate_id).first():
+                    clean_item["id"] = candidate_id
+                    break
+
         record = model_cls(**clean_item)
         db.add(record)
         db.flush()
