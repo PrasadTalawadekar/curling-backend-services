@@ -105,26 +105,43 @@ def create_table_data(
     items = payload if isinstance(payload, list) else [payload]
     created = []
     
-    for item in items:
-        valid_cols = {c.name for c in model_cls.__table__.columns}
-        clean_item = {k: v for k, v in item.items() if k in valid_cols}
-        
-        if table_name == "ud_user_master" and "id" not in clean_item:
-            import random
-            while True:
-                candidate_id = random.randint(100_000_000, 999_999_999)
-                if not db.query(models.UdUserMaster).filter(models.UdUserMaster.id == candidate_id).first():
-                    clean_item["id"] = candidate_id
-                    break
+    try:
+        for item in items:
+            valid_cols = {c.name for c in model_cls.__table__.columns}
+            clean_item = {}
+            for k, v in item.items():
+                if k not in valid_cols:
+                    continue
+                col_type = type(model_cls.__table__.columns[k].type).__name__
+                if col_type in ("DateTime", "TIMESTAMP") and isinstance(v, str) and v:
+                    try:
+                        import datetime
+                        clean_item[k] = datetime.datetime.fromisoformat(v.replace("Z", "+00:00")).replace(tzinfo=None)
+                    except Exception:
+                        clean_item[k] = None
+                else:
+                    clean_item[k] = v
+            
+            if table_name == "ud_user_master" and "id" not in clean_item:
+                import random
+                while True:
+                    candidate_id = random.randint(100_000_000, 999_999_999)
+                    if not db.query(models.UdUserMaster).filter(models.UdUserMaster.id == candidate_id).first():
+                        clean_item["id"] = candidate_id
+                        break
 
-        record = model_cls(**clean_item)
-        db.add(record)
-        db.flush()
-        db.refresh(record)
-        created.append(serialize_model(record))
-        
-    db.commit()
-    return created if isinstance(payload, list) else (created[0] if created else {})
+            record = model_cls(**clean_item)
+            db.add(record)
+            db.flush()
+            db.refresh(record)
+            created.append(serialize_model(record))
+            
+        db.commit()
+        # PostgREST always returns an array of records
+        return created
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.patch("/{table_name}")
 def update_table_data(
@@ -137,26 +154,42 @@ def update_table_data(
     if not model_cls:
         raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
     
-    query = db.query(model_cls)
-    query = apply_query_filters(query, model_cls, dict(request.query_params))
-    records = query.all()
-    
-    if not records:
-        return []
-    
-    valid_cols = {c.name for c in model_cls.__table__.columns}
-    clean_payload = {k: v for k, v in payload.items() if k in valid_cols}
-    
-    updated = []
-    for r in records:
-        for k, v in clean_payload.items():
-            setattr(r, k, v)
-        db.flush()
-        db.refresh(r)
-        updated.append(serialize_model(r))
+    try:
+        query = db.query(model_cls)
+        query = apply_query_filters(query, model_cls, dict(request.query_params))
+        records = query.all()
         
-    db.commit()
-    return updated
+        if not records:
+            return []
+        
+        valid_cols = {c.name for c in model_cls.__table__.columns}
+        clean_payload = {}
+        for k, v in payload.items():
+            if k not in valid_cols:
+                continue
+            col_type = type(model_cls.__table__.columns[k].type).__name__
+            if col_type in ("DateTime", "TIMESTAMP") and isinstance(v, str) and v:
+                try:
+                    import datetime
+                    clean_payload[k] = datetime.datetime.fromisoformat(v.replace("Z", "+00:00")).replace(tzinfo=None)
+                except Exception:
+                    clean_payload[k] = None
+            else:
+                clean_payload[k] = v
+        
+        updated = []
+        for r in records:
+            for k, v in clean_payload.items():
+                setattr(r, k, v)
+            db.flush()
+            db.refresh(r)
+            updated.append(serialize_model(r))
+            
+        db.commit()
+        return updated
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{table_name}")
 def delete_table_data(
@@ -168,11 +201,15 @@ def delete_table_data(
     if not model_cls:
         raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
     
-    query = db.query(model_cls)
-    query = apply_query_filters(query, model_cls, dict(request.query_params))
-    records = query.all()
-    
-    for r in records:
-        db.delete(r)
-    db.commit()
-    return {"deleted": len(records)}
+    try:
+        query = db.query(model_cls)
+        query = apply_query_filters(query, model_cls, dict(request.query_params))
+        records = query.all()
+        
+        for r in records:
+            db.delete(r)
+        db.commit()
+        return {"deleted": len(records)}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
