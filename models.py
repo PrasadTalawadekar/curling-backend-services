@@ -70,6 +70,7 @@ class GdGameScreenWidgetFeatureMapper(Base):
     is_goto_gd_game_screen = Column(Boolean, default=False)
     linked_goto_gd_game_screen = Column(Integer, ForeignKey("gd_game_screen.id", ondelete="CASCADE"), nullable=True)
     linked_gd_segment = Column(Integer, ForeignKey("gd_segment.id", ondelete="CASCADE"), nullable=True)
+    is_non_scrollable = Column(Boolean, default=False)
 
 class GdGameflowConfig(Base):
     __tablename__ = "gd_gameflow_config"

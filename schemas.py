@@ -98,6 +98,7 @@ class GdGameScreenWidgetFeatureMapperBase(BaseModel):
     is_goto_gd_game_screen: Optional[bool] = False
     linked_goto_gd_game_screen: Optional[int] = None
     linked_gd_segment: Optional[int] = None
+    is_non_scrollable: Optional[bool] = False
 
 class GdGameScreenWidgetFeatureMapperCreate(GdGameScreenWidgetFeatureMapperBase):
     pass
