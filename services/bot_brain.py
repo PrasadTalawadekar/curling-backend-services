@@ -231,6 +231,11 @@ def simulate_full_board(stones: List[SimStone], max_steps: int = 3000) -> List[S
 def score_board_state(stones: List[SimStone], house_cx: float, house_cz: float, house_radius: float) -> float:
     """
     Evaluate a board state from the bot's perspective. Higher = better for bot.
+
+    Mirrors actual curling scoring rules:
+    - The team with the stone closest to the button scores
+    - They score 1 point for each stone closer than the opponent's nearest
+    - Weighted by proximity to center for tiebreaking between trajectories
     """
     bot_dists = []
     player_dists = []
@@ -257,7 +262,7 @@ def score_board_state(stones: List[SimStone], house_cx: float, house_cz: float, 
         # Bot is winning — count scoring stones (closer than opponent's nearest)
         for d in bot_dists:
             if d < player_nearest:
-                score += 1.0 + (house_radius - d) / house_radius
+                score += 1.0 + (house_radius - d) / house_radius  # 1.0–2.0 per stone
     else:
         # Player is winning — negative score
         for d in player_dists:
@@ -290,7 +295,7 @@ def _build_sim_board(
             radius=s.get("radius", bot_radius),
             elasticity=s.get("elasticity", 0.85),
             friction=base_friction,
-            curl=0.0,
+            curl=0.0,  # Stationary stones have no curl
             curl_modifier=curl_modifier,
             surf_factor=surf_factor,
             max_curl=max_curl,
@@ -348,9 +353,12 @@ def find_perfect_aim(target_x, target_z, startX, curl, throw_start_z, base_frict
         if abs(err_x) < 0.02 and abs(err_z) < 0.02:
             break
 
+        # The longitudinal distance traveled (must be positive so atan2 doesn't invert for Player 2)
         z_dist = abs(fz - throw_start_z)
+        # Avoid div by zero if it didn't move
         if z_dist < 0.1: z_dist = 0.1
 
+        # If we threw from positive Z towards negative Z, the error direction is inverted relative to angle
         if target_z < throw_start_z:
             angle_deg -= math.degrees(math.atan2(err_x, z_dist)) * 0.8
         else:
@@ -378,14 +386,17 @@ def is_path_clear(
     rink_width: float, rock_radius: float
 ) -> float:
     """Simulates the arc and returns distance survived before hitting a stone. Returns float('inf') if clear."""
+
     x = startX
     z = throw_start_z
     angle_rad = math.radians(angle_deg)
     vx = math.sin(angle_rad) * power
     vz = math.cos(angle_rad) * power
 
-    dt = 0.02
+    dt = 0.02  # Match Unity fixed timestep perfectly
     collision_dist_sq = (rock_radius * 2.0) ** 2
+
+    # Stop checking when we reach the target zone
     total_z_dist = abs(target_z - throw_start_z) - (rock_radius * 2.0)
 
     while abs(z - throw_start_z) < total_z_dist and math.sqrt(vx*vx + vz*vz) > 0.1:
@@ -396,6 +407,7 @@ def is_path_clear(
         accel_fz = -dir_z * base_friction * GRAVITY
 
         perp_x, perp_z = dir_z, -dir_x
+        # NEGATE curl to match Unity
         C = (curl_modifier + surf_factor) * (-curl / max_curl) * 0.0005
         accel_lat = 2.0 * C * spd * spd
 
@@ -407,14 +419,16 @@ def is_path_clear(
         vx += ax * dt
         vz += az * dt
 
+        # Check OOB
         if abs(x) > (rink_width / 2.0):
             return 0.0
 
+        # Check collision with other stones
         for s in stones:
             sdx = x - s["x"]
             sdz = z - s["z"]
             if sdx*sdx + sdz*sdz < collision_dist_sq:
-                return abs(z - throw_start_z)
+                return abs(z - throw_start_z)  # Return distance it survived
 
     return float('inf')
 
@@ -433,6 +447,7 @@ def find_best_shot(
     max_power: float = 25.0, rink_width: float = 4.75, house_radius: float = 2.5, max_curl: float = 15.0,
 ) -> Tuple[float, float, float, float, float, str, float, float]:
 
+    # 1. Analyze Board — find nearest stone to the house center
     closest_dist = float("inf")
     nearest_stone = None
 
@@ -444,18 +459,22 @@ def find_best_shot(
             closest_dist = dist
             nearest_stone = s
 
+    # If nearest stone is entirely outside the house, ignore it
     if nearest_stone is not None and closest_dist > house_radius:
         nearest_stone = None
 
+    # 2. Strategy Selection (with difficulty-based probability gating)
     target_power_modifier = 1.0
     intent_strategy = ""
-    target_power = None
+    target_power = None  # None = let find_perfect_aim calculate power
 
     if nearest_stone is not None:
         if nearest_stone["owner"] == "bot":
+            # Bot's stone is nearest → Guard (probability gated by guard_prob)
             if random.random() <= guard_prob:
                 intent_strategy = "Guard"
                 target_x = nearest_stone["x"]
+                # Clamped guard offset: max contribution from chances_left capped at 3
                 guard_offset = rock_radius + 0.5 + (random.uniform(0.2, 0.5) * min(chances_left, 3))
                 if throw_start_z > house_cz:
                     target_z = nearest_stone["z"] + guard_offset
@@ -463,32 +482,39 @@ def find_best_shot(
                     target_z = nearest_stone["z"] - guard_offset
                 target_power_modifier = 0.95
             else:
+                # Difficulty downgrade: Draw instead of Guard
                 intent_strategy = "Draw"
                 target_x = house_cx
                 target_z = house_cz
         else:
+            # Player's stone is nearest
+            # Freeze opportunity: late game AND stone near center
             if chances_left <= 3 and closest_dist < house_radius * 0.5:
                 intent_strategy = "Freeze"
                 target_x = nearest_stone["x"]
+                # Land just touching the player's stone (from throw side)
                 if throw_start_z > house_cz:
                     target_z = nearest_stone["z"] + (rock_radius * 2.0 + 0.05)
                 else:
                     target_z = nearest_stone["z"] - (rock_radius * 2.0 + 0.05)
-                target_power_modifier = 0.98
+                target_power_modifier = 0.98  # Gentle delivery
             elif random.random() <= takeout_prob:
                 intent_strategy = "Takeout"
                 target_x = nearest_stone["x"]
                 target_z = nearest_stone["z"]
                 target_power = max_power
             else:
+                # Difficulty downgrade: Draw instead of Takeout
                 intent_strategy = "Draw"
                 target_x = house_cx
                 target_z = house_cz
     else:
+        # No stone in house → Draw to center
         intent_strategy = "Draw"
         target_x = house_cx
         target_z = house_cz
 
+    # 3. Search for Best Trajectory via Full Board Simulation
     test_starts = [0.0, 0.5, -0.5, 1.0, -1.0]
     test_curls = [0.0, max_curl * 0.3, -max_curl * 0.3, max_curl * 0.6, -max_curl * 0.6, max_curl, -max_curl]
 
@@ -497,6 +523,7 @@ def find_best_shot(
     fallback_params = None
     fallback_survival = -1.0
 
+    # Strategies that deliberately target an existing stone skip the path-clear pre-filter
     skip_prefilter = intent_strategy in ("Takeout", "Freeze")
 
     for startX in test_starts:
@@ -507,9 +534,11 @@ def find_best_shot(
                 fixed_power=target_power
             )
 
+            # Apply power modifier (Guard=0.95, Freeze=0.98, others=1.0)
             if target_power is None:
                 power *= target_power_modifier
 
+            # Fast pre-filter for Draw/Guard (skip for Takeout/Freeze)
             if not skip_prefilter:
                 survival_dist = is_path_clear(
                     startX, angle, power, curl, throw_start_z, target_z,
@@ -517,11 +546,13 @@ def find_best_shot(
                     rink_width, rock_radius
                 )
                 if survival_dist != float('inf'):
+                    # Path is blocked — track as fallback by survival distance
                     if survival_dist > fallback_survival:
                         fallback_survival = survival_dist
                         fallback_params = (startX, angle, power, curl)
                     continue
 
+            # Full board simulation to evaluate shot outcome
             sim_board = _build_sim_board(
                 stones, startX, angle, power, curl,
                 throw_start_z, base_friction, curl_modifier, surf_factor, max_curl,
@@ -537,9 +568,11 @@ def find_best_shot(
     if best_params is not None:
         return (*best_params, best_score, intent_strategy, target_x, target_z)
 
+    # Fallback: use trajectory that survived the longest before collision
     if fallback_params is not None:
         return (*fallback_params, 0.0, intent_strategy, target_x, target_z)
 
+    # Ultimate fallback: straight shot to target
     angle, power = find_perfect_aim(
         target_x, target_z, 0.0, 0.0, throw_start_z,
         base_friction, max_curl, curl_modifier, surf_factor, max_power,
@@ -547,6 +580,10 @@ def find_best_shot(
     )
     return 0.0, angle, power, 0.0, 0.0, intent_strategy, target_x, target_z
 
+
+# ---------------------------------------------------------------------------
+# Public entry: build full human-like action sequence
+# ---------------------------------------------------------------------------
 
 def generate_bot_actions(
     stones_raw: List[dict],
@@ -571,6 +608,7 @@ def generate_bot_actions(
         max_power=max_power, rink_width=rink_width, house_radius=house_radius, max_curl=max_curl
     )
 
+    # Percentage Drift Fuzzing
     drift = max(drift_variance, 0.001)
     perfect_power, perfect_angle = power, angle
     power *= random.uniform(1.0 - drift, 1.0 + drift)
@@ -580,6 +618,7 @@ def generate_bot_actions(
         power = perfect_power
         angle = perfect_angle
 
+    # Human-like timing
     think_delay = random.uniform(0.5, 1.0)
     hold_delay  = random.uniform(0.5, 1.0)
     curl_delay  = random.uniform(0.3, 0.8)

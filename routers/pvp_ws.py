@@ -1,29 +1,35 @@
 """
-FastAPI WebSocket Router for Real-Time PvP Matchmaking
-======================================================
-- Real-time 1v1 matchmaking with atomic concurrency lock
-- Instant fallback to BotSession after BOT_WAIT_SECONDS
-- Ping/Pong cellular heartbeat keep-alive
-- Clean disconnection handling and room disposal
+PvP WebSocket Matchmaking
+=========================
+Handles real player vs real player matchmaking.
+If no second human player joins within BOT_WAIT_SECONDS,
+the server auto-spawns a Bot session as Player 2.
+
+Message flow (Unity → Server):
+  { "type": "bot_turn_request", ... }  → server runs bot_brain, streams actions back
+
+Message flow (Server → Unity):
+  { "type": "bot_action", "action": "...", "delay": 0.5, ... }
 """
 
-import asyncio
 import json
-import random
 import uuid
-from typing import Dict, Optional
+import asyncio
+import random
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from services.bot_brain import generate_bot_actions
 
 router = APIRouter()
 
-# In-memory matchmaking & active rooms
-waiting_players: Dict[str, Optional[dict]] = {}
-active_rooms: Dict[WebSocket, "MatchRoom"] = {}
-matchmaking_lock = asyncio.Lock()
+# ---- Matchmaking state (in-memory) ----------------------------------------
+# Maps mode_id -> waiting WebSocket
+waiting_players: dict = {}
+active_rooms: dict = {}
 
-BOT_WAIT_SECONDS = 3  # Wait this long for human opponent before spawning BotSession
+BOT_WAIT_SECONDS = 3   # Wait this long for a real opponent before spawning a bot
 
+
+# ---- Match Room (real P1 vs real P2) --------------------------------------
 
 class MatchRoom:
     def __init__(self, p1_ws: WebSocket, p2_ws: WebSocket):
@@ -33,154 +39,192 @@ class MatchRoom:
 
     async def relay(self, sender_ws: WebSocket, message: dict):
         target = self.p2_ws if sender_ws == self.p1_ws else self.p1_ws
-        try:
-            await target.send_json(message)
-        except Exception:
-            pass
+        await target.send_json(message)
 
+
+# ---- Bot Session (server acts as P2) --------------------------------------
 
 class BotSession:
-    def __init__(self, player_ws: WebSocket, match_seed: int):
-        self.player_ws = player_ws
+    """
+    Maintains the bot's side of the match.
+    Listens for bot_turn_request messages from the real player
+    and streams back a human-like action sequence.
+    """
+
+    def __init__(self, real_player_ws: WebSocket, match_seed: int):
+        self.real_player_ws = real_player_ws
         self.match_seed = match_seed
+        random.seed(match_seed)
 
     async def handle_message(self, message: dict):
-        msg_type = message.get("type")
-        if msg_type == "bot_turn_request":
-            await self._execute_bot_turn(message)
+        """Called when the real player sends a message that needs a bot response."""
+        if message.get("type") == "bot_turn_request":
+            await self._respond_to_turn_request(message)
 
-    async def _execute_bot_turn(self, req: dict):
+    async def _respond_to_turn_request(self, req: dict):
+        """Run the bot brain and stream actions back to Unity."""
         try:
-            stones_raw = req.get("stones", [])
-            house_cx = float(req.get("house_cx", 0.0))
-            house_cz = float(req.get("house_cz", 0.0))
-            throw_start_z = float(req.get("throw_start_z", 0.0))
-            rink_friction = float(req.get("rink_friction", 0.035))
-            bot_rock_friction = float(req.get("bot_rock_friction", 0.011))
-            bot_rock_curl_modifier = float(req.get("bot_rock_curl_modifier", 1.0))
-            bot_rock_mass = float(req.get("bot_rock_mass", 20.0))
-            bot_rock_radius = float(req.get("bot_rock_radius", 0.5))
-            bot_rock_elasticity = float(req.get("bot_rock_elasticity", 0.85))
-            curl_factor = float(req.get("curl_factor", 1.0))
-            drift_variance = float(req.get("drift_variance", 0.02))
-            perfect_release_prob = float(req.get("perfect_release_prob", 0.7))
-            takeout_probability = float(req.get("takeout_probability", 0.6))
-            guard_probability = float(req.get("guard_probability", 0.4))
-            chances_left = int(req.get("chances_left", 3))
-
+            print(f"BOT TURN REQUEST: {req}")
             actions = generate_bot_actions(
-                stones_raw=stones_raw,
-                house_cx=house_cx, house_cz=house_cz, throw_start_z=throw_start_z,
-                rink_friction=rink_friction, bot_rock_friction=bot_rock_friction,
-                bot_rock_curl_modifier=bot_rock_curl_modifier,
-                bot_rock_mass=bot_rock_mass, bot_rock_radius=bot_rock_radius,
-                bot_rock_elasticity=bot_rock_elasticity,
-                curl_factor=curl_factor, drift_variance=drift_variance,
-                perfect_release_probability=perfect_release_prob,
-                takeout_probability=takeout_probability, guard_probability=guard_probability,
-                chances_left=chances_left,
+                stones_raw=req.get("stones", []),
+                house_cx=req.get("house_center_x", 0.0),
+                house_cz=req.get("house_center_z", 40.0),
+                throw_start_z=req.get("throw_start_z", 2.0),
+                rink_friction=req.get("rink_friction", 0.023),
+                bot_rock_friction=req.get("bot_rock_friction", 0.023),
+                bot_rock_curl_modifier=req.get("bot_rock_curl_modifier", 1.0),
+                bot_rock_mass=req.get("bot_rock_mass", 20.0),
+                bot_rock_radius=req.get("bot_rock_radius", 0.5),
+                bot_rock_elasticity=req.get("bot_rock_elasticity", 0.85),
+                curl_factor=req.get("curl_factor", 1.0),
+                drift_variance=req.get("drift_variance", 0.05),
+                perfect_release_probability=req.get("perfect_release_probability", 0.2),
+                takeout_probability=req.get("takeout_probability", 0.5),
+                guard_probability=req.get("guard_probability", 0.3),
+                chances_left=req.get("chances_left", 3),
+                max_power=req.get("max_power", 25.0),
+                rink_width=req.get("rink_width", 4.75),
+                house_radius=req.get("house_radius", 2.5),
+                max_curl=req.get("max_curl", 15.0)
             )
 
-            for action in actions:
-                delay = action.get("delay", 0.0)
-                if delay > 0:
-                    await asyncio.sleep(delay)
-                await self.player_ws.send_json(action)
+            # Keep track of current state to stream complete aim payloads
+            current_x = 0.0
+            current_angle = 0.0
+            current_curl = 0.0
+            current_power = 0.0
+
+            # Stream each action to Unity, waiting the specified delay between them
+            for action_data in actions:
+                delay = action_data.get("delay", 0.5)
+                await asyncio.sleep(delay)
+
+                act_type = action_data.get("action")
+                if act_type == "intent_log":
+                    strategy = action_data.get("strategy", "")
+                    tx = action_data.get("target_x", 0.0)
+                    tz = action_data.get("target_z", 0.0)
+                    await self.real_player_ws.send_json({
+                        "type": "bot_intent",
+                        "message": f"{strategy},{tx},{tz}"
+                    })
+                    continue # No aim update for this
+                elif act_type == "adjusting_position":
+                    current_x = action_data.get("startX", 0.0)
+                elif act_type == "set_curl":
+                    current_curl = action_data.get("curl", 0.0)
+                elif act_type == "set_power":
+                    current_power = action_data.get("power", 0.0)
+                elif act_type == "release":
+                    current_x = action_data.get("startX", 0.0)
+                    current_angle = action_data.get("angle", 0.0)
+                    current_power = action_data.get("power", 0.0)
+                    current_curl = action_data.get("curl", 0.0)
+
+                    # Send final throw message (using 39 as a dummy rockId for the bot)
+                    payload = f"{current_x},{current_angle},{current_power},{current_curl},39"
+                    await self.real_player_ws.send_json({
+                        "type": "throw",
+                        "message": payload
+                    })
+                    return # End of turn
+
+                # For all intermediate steps (including "hold"), send an aim update
+                # Format: "phaseInt:X,Angle,Curl,Power"
+                aim_payload = f"0:{current_x},{current_angle},{current_curl},{current_power}"
+                await self.real_player_ws.send_json({
+                    "type": "aim",
+                    "message": aim_payload
+                })
+
         except Exception as e:
             print(f"[BotSession] Error generating bot actions: {e}")
 
 
+# ---- Main WebSocket endpoint -----------------------------------------------
+
 @router.websocket("/ws/matchmaking")
 async def websocket_endpoint(websocket: WebSocket, mode: str = "default", rock: int = 534):
+    global waiting_players
+
     await websocket.accept()
 
-    p1_data = None
-    async with matchmaking_lock:
-        if mode not in waiting_players or waiting_players[mode] is None:
-            # Player 1 enters queue
-            waiting_players[mode] = {"ws": websocket, "rock": rock}
-            is_p1 = True
-        else:
-            # Player 2 pairs with Player 1
-            p1_data = waiting_players[mode]
-            waiting_players[mode] = None
-            is_p1 = False
-
-    if is_p1:
+    if mode not in waiting_players or waiting_players[mode] is None:
+        # --- Player 1: wait up to BOT_WAIT_SECONDS for a human opponent ---
+        waiting_players[mode] = {"ws": websocket, "rock": rock}
         await websocket.send_json({"type": "waiting", "message": f"Waiting for opponent in mode {mode}..."})
 
-        # Wait up to BOT_WAIT_SECONDS for human player 2
+        # Give a human opponent BOT_WAIT_SECONDS to join
         try:
             await asyncio.wait_for(_wait_for_opponent(websocket), timeout=BOT_WAIT_SECONDS)
         except asyncio.TimeoutError:
             pass
 
-        async with matchmaking_lock:
-            no_human = (waiting_players.get(mode) and waiting_players[mode]["ws"] == websocket)
-            if no_human:
-                waiting_players[mode] = None
-
-        if no_human:
-            # Fallback to intelligent bot match
+        if waiting_players.get(mode) and waiting_players[mode]["ws"] == websocket:
+            # No human joined — spawn a bot
+            waiting_players[mode] = None
             await _run_bot_match(websocket)
         elif websocket in active_rooms:
-            # Human joined! Keep relaying messages
+            # A human joined! Keep P1 alive to relay messages.
             try:
                 while True:
                     data = await websocket.receive_text()
-                    msg = json.loads(data)
-                    if msg.get("type") == "ping":
-                        await websocket.send_json({"type": "pong"})
-                        continue
                     if websocket in active_rooms:
-                        await active_rooms[websocket].relay(websocket, msg)
+                        await active_rooms[websocket].relay(websocket, json.loads(data))
             except WebSocketDisconnect:
                 _cleanup_room(websocket)
 
     else:
-        # Player 2 joined human Player 1
+        # --- Player 2: a real human joined ---
+        p1_data = waiting_players[mode]
         p1_ws = p1_data["ws"]
         p1_rock = p1_data["rock"]
         p2_ws = websocket
         p2_rock = rock
+        waiting_players[mode] = None
 
         room = MatchRoom(p1_ws, p2_ws)
         active_rooms[p1_ws] = room
         active_rooms[p2_ws] = room
 
         match_seed = random.randint(1000, 999999)
-        p1_first = random.choice([True, False])
-        p1_id = 1 if p1_first else 2
-        p2_id = 2 if p1_first else 1
-
-        await p1_ws.send_json({"type": "match_start", "player_id": p1_id, "your_turn": p1_first, "match_seed": match_seed, "opponent_rock_id": p2_rock})
-        await p2_ws.send_json({"type": "match_start", "player_id": p2_id, "your_turn": not p1_first, "match_seed": match_seed, "opponent_rock_id": p1_rock})
+        
+        # Randomize who is Player 1 (Red) and Player 2 (Blue). Player 1 always goes first.
+        if random.choice([True, False]):
+            p1_ws_player_id = 1
+            p2_ws_player_id = 2
+        else:
+            p1_ws_player_id = 2
+            p2_ws_player_id = 1
+            
+        await p1_ws.send_json({"type": "match_start", "player_id": p1_ws_player_id, "your_turn": (p1_ws_player_id == 1),  "match_seed": match_seed, "opponent_rock_id": p2_rock})
+        await p2_ws.send_json({"type": "match_start", "player_id": p2_ws_player_id, "your_turn": (p2_ws_player_id == 1), "match_seed": match_seed, "opponent_rock_id": p1_rock})
 
         try:
             while True:
                 data = await websocket.receive_text()
-                msg = json.loads(data)
-                if msg.get("type") == "ping":
-                    await websocket.send_json({"type": "pong"})
-                    continue
                 if websocket in active_rooms:
-                    await active_rooms[websocket].relay(websocket, msg)
+                    await active_rooms[websocket].relay(websocket, json.loads(data))
         except WebSocketDisconnect:
             _cleanup_room(websocket)
 
 
+# ---- Helpers ----------------------------------------------------------------
+
 async def _wait_for_opponent(p1_ws: WebSocket):
+    """
+    Keep the P1 connection alive while waiting.
+    If a message arrives and we are now in a room, relay it.
+    Raises WebSocketDisconnect if the player leaves.
+    """
     while True:
         data = await p1_ws.receive_text()
-        msg = json.loads(data)
-        if msg.get("type") == "ping":
-            await p1_ws.send_json({"type": "pong"})
-            continue
         if p1_ws in active_rooms:
-            await active_rooms[p1_ws].relay(p1_ws, msg)
+            await active_rooms[p1_ws].relay(p1_ws, json.loads(data))
 
 
 async def _run_bot_match(p1_ws: WebSocket):
+    """Run a full match where the server is Player 2 (the bot)."""
     match_seed = random.randint(1000, 999999)
     bot_session = BotSession(p1_ws, match_seed)
 
@@ -189,20 +233,21 @@ async def _run_bot_match(p1_ws: WebSocket):
         "player_id": 1,
         "your_turn": True,
         "match_seed": match_seed,
-        "is_vs_bot": True
+        "is_vs_bot": True       # flag Unity so it knows it's a bot match
     })
 
     try:
         while True:
             data = await p1_ws.receive_text()
             message = json.loads(data)
-            if message.get("type") == "ping":
-                await p1_ws.send_json({"type": "pong"})
-                continue
+
+            # If the player sends a bot_turn_request, handle it
             if message.get("type") == "bot_turn_request":
+                # Run bot brain asynchronously so we don't block the receive loop
                 asyncio.create_task(bot_session.handle_message(message))
+            # All other messages (turn_swap, etc.) are noted but need no relay
     except WebSocketDisconnect:
-        pass
+        print(f"[PvP-WS] Bot match ended — player disconnected.")
 
 
 def _cleanup_room(ws: WebSocket):

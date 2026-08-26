@@ -1,9 +1,13 @@
 """
 PvP Real-Time Matchmaking & 50-Match Physics Simulator
 ======================================================
-Runs simultaneous PvP matches in parallel against Google Cloud Run or Local server,
+Runs 50 simultaneous PvP matches (100 WebSocket clients) in parallel,
 simulates full 2D continuous physics and elastic collisions locally,
-detects anomalies, and renders visual ASCII rock maps for matches.
+detects anomalies, and renders visual ASCII rock maps for every match.
+
+Usage:
+    python simulate_pvp_matches.py --matches 50 --url wss://curling-mobile-game.onrender.com/ws/matchmaking
+    python simulate_pvp_matches.py --matches 10 --url ws://localhost:8000/ws/matchmaking --visualize
 """
 
 import asyncio
@@ -98,9 +102,11 @@ class PhysicsWorld:
         self.stones.append(stone)
 
     def step(self) -> bool:
+        """Runs 1 physics tick (0.02s). Returns True if any stone is still moving."""
         any_moving = False
         active_stones = [s for s in self.stones if not s.is_out_of_bounds]
 
+        # 1. Update velocities and positions
         for s in active_stones:
             if not s.is_moving:
                 continue
@@ -113,6 +119,8 @@ class PhysicsWorld:
                 continue
 
             any_moving = True
+
+            # Deceleration
             decel = s.mass * s.friction * GRAVITY
             new_speed = max(0.0, speed - decel * DT)
 
@@ -122,9 +130,11 @@ class PhysicsWorld:
                 s.is_moving = False
                 continue
 
+            # Direction unit vector
             dir_x = s.vx / speed
             dir_z = s.vz / speed
 
+            # Curl angular rotation
             effective_curl = s.curl * s.curl_modifier * s.surf_factor
             d_theta = 2.0 * effective_curl * math.radians(1.0) * new_speed * DT
             cos_t = math.cos(-d_theta)
@@ -138,12 +148,14 @@ class PhysicsWorld:
             s.x += s.vx * DT
             s.z += s.vz * DT
 
+            # Boundary checks
             if abs(s.x) > self.rink_width / 2.0 or s.z > self.max_z or s.z < -5.0:
                 s.is_out_of_bounds = True
                 s.is_moving = False
                 s.vx = 0.0
                 s.vz = 0.0
 
+        # 2. Collision resolution (stone to stone)
         for i in range(len(active_stones)):
             s1 = active_stones[i]
             if s1.is_out_of_bounds:
@@ -164,11 +176,12 @@ class PhysicsWorld:
                     nx = dx / dist
                     nz = dz / dist
 
+                    # Relative velocity along normal
                     rel_vx = s1.vx - s2.vx
                     rel_vz = s1.vz - s2.vz
                     vn = rel_vx * nx + rel_vz * nz
 
-                    if vn > 0:
+                    if vn > 0:  # Moving towards each other
                         self.collision_count += 1
                         rebound = min(s1.elasticity, s2.elasticity)
                         impulse = -(1.0 + rebound) * vn / (1.0 / s1.mass + 1.0 / s2.mass)
@@ -181,6 +194,7 @@ class PhysicsWorld:
                         s1.is_moving = True
                         s2.is_moving = True
 
+                        # Overlap separation
                         overlap = 0.5 * (min_dist - dist)
                         s1.x -= nx * overlap
                         s1.z -= nz * overlap
@@ -200,11 +214,15 @@ class PhysicsWorld:
 # ---------------------------------------------------------------------------
 
 def calculate_bot_shot(house_cx: float, house_cz: float, stones_on_ice: List[Stone], my_team: str, strategy: str = "draw") -> Tuple[float, float, float, float]:
+    """Generates realistic curling shot parameters (startX, angle_deg, power, curl)."""
     dist_to_house = house_cz - THROW_START_Z
+    
+    # Calculate base velocity needed for distance: v = sqrt(2 * a * d)
     decel = DEFAULT_ROCK_MASS * 0.0001 * GRAVITY
     ideal_speed = math.sqrt(2.0 * decel * dist_to_house)
 
     if strategy == "takeout":
+        # Target opponent stone closest to button
         opp_stones = [s for s in stones_on_ice if s.owner != my_team and not s.is_out_of_bounds]
         if opp_stones:
             target = min(opp_stones, key=lambda s: math.hypot(s.x - house_cx, s.z - house_cz))
@@ -214,6 +232,7 @@ def calculate_bot_shot(house_cx: float, house_cz: float, stones_on_ice: List[Sto
             takeout_speed = ideal_speed * 1.35
             return (0.0, angle_deg, takeout_speed, 0.0)
 
+    # Standard Draw / Guard
     lateral_target_x = house_cx + random.uniform(-0.8, 0.8)
     dx = lateral_target_x - 0.0
     dz = dist_to_house
@@ -225,6 +244,7 @@ def calculate_bot_shot(house_cx: float, house_cz: float, stones_on_ice: List[Sto
 
 
 async def recv_json(ws, target_types: Optional[List[str]] = None, timeout: float = 6.0) -> dict:
+    """Reads JSON from WebSocket, skipping background status messages like 'waiting'."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         remaining = max(0.1, deadline - time.time())
@@ -239,10 +259,11 @@ async def recv_json(ws, target_types: Optional[List[str]] = None, timeout: float
 
 
 # ---------------------------------------------------------------------------
-# Virtual PvP Match Runner
+# Virtual PvP Match Runner (Async WebSockets)
 # ---------------------------------------------------------------------------
 
 async def run_single_match(match_index: int, server_url: str, pvp_mode: str, chances_per_user: int = 3) -> MatchResult:
+    """Simulates 1 complete match between two WebSocket clients (P1 & P2)."""
     start_time = time.time()
     anomalies = []
     
@@ -251,6 +272,7 @@ async def run_single_match(match_index: int, server_url: str, pvp_mode: str, cha
     p1_stones: List[Stone] = []
     p2_stones: List[Stone] = []
     
+    # Use dedicated mode room key per simulated pair to ensure clean 1v1 pairing
     room_mode = f"{pvp_mode}_{match_index}"
     p1_url = f"{server_url}?mode={room_mode}&rock=534"
     p2_url = f"{server_url}?mode={room_mode}&rock=535"
@@ -259,16 +281,21 @@ async def run_single_match(match_index: int, server_url: str, pvp_mode: str, cha
     match_seed = 0
 
     try:
+        # 1. Connect Player 1
         p1_ws = await websockets.connect(p1_url, open_timeout=8.0, close_timeout=2.0)
+        # Small delay before P2 joins so P1 enters matchmaking queue first
         await asyncio.sleep(0.15)
+        # 2. Connect Player 2 (Will match with Player 1)
         p2_ws = await websockets.connect(p2_url, open_timeout=8.0, close_timeout=2.0)
 
+        # Receive match_start from both (handling any preceding 'waiting' messages)
         msg1 = await recv_json(p1_ws, ["match_start"], timeout=8.0)
         msg2 = await recv_json(p2_ws, ["match_start"], timeout=8.0)
 
         match_seed = msg1.get("match_seed", random.randint(1000, 9999))
         random.seed(match_seed + match_index)
 
+        # Total stones in match
         total_throws = chances_per_user * 2
         current_turn_p1 = msg1.get("your_turn", True)
 
@@ -277,9 +304,11 @@ async def run_single_match(match_index: int, server_url: str, pvp_mode: str, cha
             active_ws = p1_ws if current_turn_p1 else p2_ws
             passive_ws = p2_ws if current_turn_p1 else p1_ws
 
+            # Strategy selection
             strategy = "takeout" if (throw_num >= 3 and random.random() < 0.4) else "draw"
             startX, angle, power, curl = calculate_bot_shot(DEFAULT_HOUSE_CX, DEFAULT_HOUSE_CZ, world.stones, current_team, strategy)
 
+            # Send aim & throw message over websocket
             throw_msg = {
                 "type": "throw",
                 "player_id": 1 if current_turn_p1 else 2,
@@ -290,8 +319,10 @@ async def run_single_match(match_index: int, server_url: str, pvp_mode: str, cha
             }
             await active_ws.send(json.dumps(throw_msg))
 
-            _ = await recv_json(passive_ws, ["throw"], timeout=4.0)
+            # Passive player receives the throw
+            recv_msg = await recv_json(passive_ws, ["throw"], timeout=4.0)
 
+            # Spawn stone in local physics engine
             rad = math.radians(angle)
             vx = math.sin(rad) * power
             vz = math.cos(rad) * power
@@ -313,8 +344,10 @@ async def run_single_match(match_index: int, server_url: str, pvp_mode: str, cha
             else:
                 p2_stones.append(stone)
 
+            # Simulate physics until stone and all chain collisions stop
             world.run_until_stopped()
 
+            # Swap turn
             current_turn_p1 = not current_turn_p1
             swap_msg = {"type": "turn_swap", "player_id": 1 if current_turn_p1 else 2}
             await active_ws.send(json.dumps(swap_msg))
@@ -332,12 +365,17 @@ async def run_single_match(match_index: int, server_url: str, pvp_mode: str, cha
             try: await p2_ws.close()
             except: pass
 
+    # -----------------------------------------------------------------------
+    # Post-Match Anomaly Detection & Scoring
+    # -----------------------------------------------------------------------
     active_stones = [s for s in world.stones if not s.is_out_of_bounds]
 
+    # Check for NaN / Inf anomalies
     for s in world.stones:
         if math.isnan(s.x) or math.isnan(s.z) or math.isinf(s.x) or math.isinf(s.z):
             anomalies.append(f"[NAN_CORRUPTION] Stone {s.id} ({s.owner}) has invalid coordinates: X={s.x}, Z={s.z}")
 
+    # Check for overlapping stopped stones
     for i in range(len(active_stones)):
         for j in range(i + 1, len(active_stones)):
             s1, s2 = active_stones[i], active_stones[j]
@@ -345,6 +383,7 @@ async def run_single_match(match_index: int, server_url: str, pvp_mode: str, cha
             if dist < (s1.radius + s2.radius - 0.05):
                 anomalies.append(f"[COLLISION_OVERLAP] Stones {s1.id} and {s2.id} overlapping: distance={dist:.3f}m < {s1.radius+s2.radius}m")
 
+    # Score calculation
     p1_score = 0
     p2_score = 0
     winner = "Draw"
@@ -357,12 +396,13 @@ async def run_single_match(match_index: int, server_url: str, pvp_mode: str, cha
         closest_stone, closest_dist = stones_with_dist[0]
         winner = closest_stone.owner
 
+        # Count how many stones of the winning team are closer than the best opponent stone
         opp_team = "P2" if winner == "P1" else "P1"
         opp_dists = [d for s, d in stones_with_dist if s.owner == opp_team]
         cutoff = opp_dists[0] if opp_dists else float("inf")
 
         for s, d in stones_with_dist:
-            if s.owner == winner and d < cutoff and d <= 2.5:
+            if s.owner == winner and d < cutoff and d <= 2.5:  # Within house
                 if winner == "P1": p1_score += 1
                 else: p2_score += 1
 
@@ -387,6 +427,7 @@ async def run_single_match(match_index: int, server_url: str, pvp_mode: str, cha
 # ---------------------------------------------------------------------------
 
 def render_ascii_rock_map(res: MatchResult, rink_width: float = 4.0, z_range: float = 4.0) -> str:
+    """Renders a 2D top-down ASCII map of the Curling House and stones."""
     grid_w, grid_h = 41, 21
     grid = [[" " for _ in range(grid_w)] for _ in range(grid_h)]
 
@@ -399,30 +440,32 @@ def render_ascii_rock_map(res: MatchResult, rink_width: float = 4.0, z_range: fl
         gz = int((z - z_min) / (z_max - z_min) * (grid_h - 1))
         return (max(0, min(grid_w - 1, gx)), max(0, min(grid_h - 1, gz)))
 
+    # Draw house boundary circles
     for gy in range(grid_h):
         for gx in range(grid_w):
             rx = x_min + (gx / (grid_w - 1)) * (x_max - x_min)
             rz = z_min + (gy / (grid_h - 1)) * (z_max - z_min)
             d = math.hypot(rx - cx, rz - cz)
 
-            if abs(d - 1.83) < 0.08:
+            if abs(d - 1.83) < 0.08:  # 12-foot ring
                 grid[gy][gx] = "."
-            elif abs(d - 1.22) < 0.08:
+            elif abs(d - 1.22) < 0.08:  # 8-foot ring
                 grid[gy][gx] = ":"
-            elif abs(d - 0.61) < 0.08:
+            elif abs(d - 0.61) < 0.08:  # 4-foot ring
                 grid[gy][gx] = "="
-            elif d < 0.18:
+            elif d < 0.18:  # Button center
                 grid[gy][gx] = "+"
 
+    # Plot Stones
     for s in res.p1_stones:
         if not s.is_out_of_bounds:
             gx, gz = to_grid(s.x, s.z)
-            grid[gz][gx] = "Y"
+            grid[gz][gx] = "Y"  # Yellow / P1
 
     for s in res.p2_stones:
         if not s.is_out_of_bounds:
             gx, gz = to_grid(s.x, s.z)
-            grid[gz][gx] = "R"
+            grid[gz][gx] = "R"  # Red / P2
 
     header = f"+--- MATCH #{res.match_id:02d} ROCK MAP (Y=Player 1, R=Player 2, +=Button) ---+\n"
     lines = [header]
@@ -433,7 +476,7 @@ def render_ascii_rock_map(res: MatchResult, rink_width: float = 4.0, z_range: fl
 
 
 # ---------------------------------------------------------------------------
-# Master Runner
+# Master Runner (Concurrent Matches with Concurrency Pool)
 # ---------------------------------------------------------------------------
 
 async def run_guarded_match(sem: asyncio.Semaphore, match_idx: int, url: str, mode: str, total: int, results_list: list):
@@ -470,8 +513,12 @@ async def main():
     await asyncio.gather(*tasks)
     total_time = time.time() - start_all
 
+    # Sort results by match_id for display
     results.sort(key=lambda r: r.match_id)
 
+    # -----------------------------------------------------------------------
+    # Summary & Anomaly Reporting
+    # -----------------------------------------------------------------------
     p1_wins = sum(1 for r in results if r.winner == "P1")
     p2_wins = sum(1 for r in results if r.winner == "P2")
     draws   = sum(1 for r in results if r.winner == "Draw")
@@ -486,12 +533,14 @@ async def main():
     print(f"  [!!] Total Anomalies        : {total_anomalies:2d}")
     print("=" * 75)
 
+    # Detailed Match Log Table
     print("\n| Match | Winner | Score | Closest Stone | Collisions | Duration | Anomalies |")
     print("|:-----:|:------:|:-----:|:-------------:|:----------:|:--------:|:---------:|")
     for r in results:
         status = "[OK]" if not r.anomalies else f"[WARN: {len(r.anomalies)}]"
         print(f"| #{r.match_id:02d}  |   {r.winner:4s} | {r.p1_score}-{r.p2_score} | {r.closest_distance:5.2f}m       | {r.total_collisions:10d} | {r.duration_sec:6.2f}s  | {status:9s} |")
 
+    # Anomaly Details
     if total_anomalies > 0:
         print("\n" + "!" * 75)
         print("  ANOMALY INVESTIGATION LOG")
@@ -502,6 +551,7 @@ async def main():
                 for a in r.anomalies:
                     print(f"   -> {a}")
 
+    # Visual Rock Maps (if requested or for first 3 samples)
     sample_count = args.matches if args.visualize else min(3, args.matches)
     print(f"\n" + "=" * 75)
     print(f"  ROCK MAP SAMPLES (Showing {sample_count} matches | Y=Yellow(P1), R=Red(P2), +=Button)")

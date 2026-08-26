@@ -19,7 +19,7 @@ user_enc = urllib.parse.quote_plus(DB_USER)
 pwd_enc = urllib.parse.quote_plus(DB_PASSWORD)
 auth_str = f"{user_enc}:{pwd_enc}" if DB_PASSWORD else user_enc
 
-if not DATABASE_URL:
+if not DATABASE_URL or "<YOUR_" in DATABASE_URL:
     if INSTANCE_CONNECTION_NAME and os.path.exists(f"/cloudsql/{INSTANCE_CONNECTION_NAME}"):
         if "postgres" in DB_TYPE:
             DATABASE_URL = f"postgresql+psycopg2://{auth_str}@/{DB_NAME}?host=/cloudsql/{INSTANCE_CONNECTION_NAME}"

@@ -77,45 +77,134 @@ def apply_query_filters(query, model_cls, params: dict):
 
     return query
 
+import re
+from sqlalchemy import text
+
 @router.get("/{table_name}")
 def get_table_data(
     table_name: str, 
     request: Request,
     db: Session = Depends(get_db)
 ):
-    model_cls = TABLE_MAP.get(table_name)
-    if not model_cls:
-        raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
-    
+    if not re.match(r'^[a-zA-Z0-9_]+$', table_name):
+        raise HTTPException(status_code=400, detail="Invalid table name")
+
     try:
-        query = db.query(model_cls)
-        query = apply_query_filters(query, model_cls, dict(request.query_params))
-        records = query.all()
-        return [serialize_model(r) for r in records]
+        params = dict(request.query_params)
+        where_clauses = []
+        sql_params = {}
+        
+        param_idx = 0
+        for key, value in params.items():
+            if key in ('select', 'order', 'limit', 'offset', 'apikey'):
+                continue
+            if not re.match(r'^[a-zA-Z0-9_]+$', key):
+                continue
+                
+            param_idx += 1
+            param_key = f"p_{key}_{param_idx}"
+            if isinstance(value, str):
+                if value.startswith('eq.'):
+                    val = value[3:]
+                    if val.lower() == 'null':
+                        where_clauses.append(f"`{key}` IS NULL")
+                    elif val.lower() == 'true':
+                        where_clauses.append(f"`{key}` = 1")
+                    elif val.lower() == 'false':
+                        where_clauses.append(f"`{key}` = 0")
+                    else:
+                        where_clauses.append(f"`{key}` = :{param_key}")
+                        sql_params[param_key] = val
+                elif value.startswith('neq.'):
+                    val = value[4:]
+                    if val.lower() == 'null':
+                        where_clauses.append(f"`{key}` IS NOT NULL")
+                    elif val.lower() == 'true':
+                        where_clauses.append(f"`{key}` != 1")
+                    elif val.lower() == 'false':
+                        where_clauses.append(f"`{key}` != 0")
+                    else:
+                        where_clauses.append(f"`{key}` != :{param_key}")
+                        sql_params[param_key] = val
+                elif value.startswith('gt.'):
+                    where_clauses.append(f"`{key}` > :{param_key}")
+                    sql_params[param_key] = value[3:]
+                elif value.startswith('gte.'):
+                    where_clauses.append(f"`{key}` >= :{param_key}")
+                    sql_params[param_key] = value[4:]
+                elif value.startswith('lt.'):
+                    where_clauses.append(f"`{key}` < :{param_key}")
+                    sql_params[param_key] = value[3:]
+                elif value.startswith('lte.'):
+                    where_clauses.append(f"`{key}` <= :{param_key}")
+                    sql_params[param_key] = value[4:]
+                elif value.startswith('like.'):
+                    where_clauses.append(f"`{key}` LIKE :{param_key}")
+                    sql_params[param_key] = value[5:]
+                elif value.startswith('ilike.'):
+                    where_clauses.append(f"`{key}` LIKE :{param_key}")
+                    sql_params[param_key] = value[6:]
+                elif value.startswith('in.(') and value.endswith(')'):
+                    items = [x.strip() for x in value[4:-1].split(',')]
+                    in_placeholders = []
+                    for i, item in enumerate(items):
+                        pk = f"{param_key}_{i}"
+                        in_placeholders.append(f":{pk}")
+                        sql_params[pk] = item
+                    where_clauses.append(f"`{key}` IN ({', '.join(in_placeholders)})")
+                else:
+                    where_clauses.append(f"`{key}` = :{param_key}")
+                    sql_params[param_key] = value
+            else:
+                where_clauses.append(f"`{key}` = :{param_key}")
+                sql_params[param_key] = value
+
+        select_cols = "*"
+        if 'select' in params and params['select']:
+            cols = [c.strip() for c in params['select'].split(',') if re.match(r'^[a-zA-Z0-9_]+$', c.strip())]
+            if cols:
+                select_cols = ", ".join([f"`{c}`" for c in cols])
+
+        sql = f"SELECT {select_cols} FROM `{table_name}`"
+        if where_clauses:
+            sql += " WHERE " + " AND ".join(where_clauses)
+            
+        order = params.get('order')
+        if order:
+            parts = order.split('.')
+            col_name = parts[0]
+            if re.match(r'^[a-zA-Z0-9_]+$', col_name):
+                direction = 'DESC' if len(parts) > 1 and parts[1].lower() == 'desc' else 'ASC'
+                sql += f" ORDER BY `{col_name}` {direction}"
+        else:
+            # Check if id column exists for default sort
+            sql += " ORDER BY `id` ASC"
+
+        if 'limit' in params and params['limit'].isdigit():
+            sql += f" LIMIT {int(params['limit'])}"
+        if 'offset' in params and params['offset'].isdigit():
+            sql += f" OFFSET {int(params['offset'])}"
+
+        result = db.execute(text(sql), sql_params)
+        columns = result.keys()
+        rows = result.fetchall()
+        
+        output = []
+        for row in rows:
+            row_dict = {}
+            for col, val in zip(columns, row):
+                if hasattr(val, 'isoformat'):
+                    row_dict[col] = val.isoformat()
+                elif isinstance(val, (bytes, bytearray)):
+                    row_dict[col] = bool(val[0])
+                else:
+                    row_dict[col] = val
+            output.append(row_dict)
+            
+        return output
     except Exception as e:
         db.rollback()
-        # Fallback: query only columns that exist in the physical table
-        try:
-            from sqlalchemy import inspect as sa_inspect
-            inspector = sa_inspect(db.bind)
-            existing_cols = {c['name'] for c in inspector.get_columns(table_name)}
-            if not existing_cols:
-                return []
-            cols_to_select = [getattr(model_cls, c) for c in existing_cols if hasattr(model_cls, c)]
-            raw_records = db.query(*cols_to_select).all()
-            result = []
-            for r in raw_records:
-                d = {}
-                for col in cols_to_select:
-                    val = getattr(r, col.key, getattr(r, col.name, None))
-                    if hasattr(val, 'isoformat'):
-                        val = val.isoformat()
-                    d[col.name] = val
-                result.append(d)
-            return result
-        except Exception:
-            db.rollback()
-            return []
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{table_name}")
 def create_table_data(

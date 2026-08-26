@@ -6,10 +6,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application source
-COPY . .
-
-# Cloud Run dynamic PORT binding
+# Environment variable for port with fallback
 ENV PORT=8000
 
+# Run FastAPI via uvicorn (Cloud Run dynamically sets $PORT)
 CMD exec uvicorn main:app --host 0.0.0.0 --port ${PORT}

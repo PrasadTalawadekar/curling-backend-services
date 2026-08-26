@@ -39,6 +39,8 @@ class GdWidget(Base):
     is_gd_widget_asset = Column(Boolean, default=False)
     gd_widget_image_url = Column(String, nullable=True)
     gd_widget_multiplier = Column(Float, default=1.0)
+    widget_width = Column(Float, nullable=True, default=0.0)
+    widget_height = Column(Float, nullable=True, default=0.0)
     gd_widget_screen_description = Column(String, nullable=True)
 
 class GdGameScreen(Base):
