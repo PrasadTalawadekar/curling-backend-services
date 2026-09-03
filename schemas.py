@@ -839,6 +839,7 @@ class GdLeaderboardBase(BaseModel):
     gd_leaderboard_end_level: Optional[int] = 0
     gd_leaderboard_start_time: Optional[datetime] = None
     gd_leaderboard_end_time: Optional[datetime] = None
+    gd_leaderboard_refresh_mins: Optional[int] = 5
 
 class GdLeaderboardCreate(GdLeaderboardBase):
     pass

@@ -467,6 +467,7 @@ class GdLeaderboard(Base):
     gd_leaderboard_end_level = Column(Integer, default=0)
     gd_leaderboard_start_time = Column(DateTime, nullable=True)
     gd_leaderboard_end_time = Column(DateTime, nullable=True)
+    gd_leaderboard_refresh_mins = Column(Integer, default=5)
 
 class GdLeaderboardReward(Base):
     __tablename__ = "gd_leaderboard_reward"
