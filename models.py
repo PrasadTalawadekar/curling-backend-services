@@ -591,6 +591,7 @@ class UdUserMaster(Base):
     is_ud_user_master_facebook = Column(Boolean, default=False)
     ud_user_master_facebook_id = Column(String, nullable=True)
     ud_user_master_ftue_step = Column(Integer, default=0)
+    is_banned = Column(Boolean, default=False)
 
 class UdUserWallet(Base):
     __tablename__ = "ud_user_wallet"

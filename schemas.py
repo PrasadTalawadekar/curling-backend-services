@@ -947,6 +947,7 @@ class UdUserMasterBase(BaseModel):
     is_ud_user_master_facebook: Optional[bool] = False
     ud_user_master_facebook_id: Optional[str] = None
     ud_user_master_ftue_step: Optional[int] = 0
+    is_banned: Optional[bool] = False
 
 class UdUserMasterCreate(UdUserMasterBase):
     pass
