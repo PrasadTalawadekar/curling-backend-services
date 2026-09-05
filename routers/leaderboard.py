@@ -147,6 +147,7 @@ def get_leaderboard(gd_leaderboard_name: str, db: Session = Depends(get_db)):
                     user_name = f"Bot #{bot.id}"
                 
         results.append({
+            "user_id": user.linked_ud_user_master or 0,
             "rank": user.current_rank,
             "name": user_name,
             "score": user.score,
