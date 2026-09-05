@@ -971,6 +971,7 @@ class UdUserRockBase(BaseModel):
     ud_user_rock_rebound_elasticity: Optional[float] = 1.0
     ud_user_rock_max_speed: Optional[float] = 100.0
     ud_user_rock_size: Optional[float] = 1.0
+    ud_user_rock_matches_played: Optional[int] = 0
     linked_gd_game_currency_repair: Optional[int] = None
     ud_user_rock_repair_quantity: Optional[int] = 0
 
@@ -993,6 +994,7 @@ class UdUserBroomBase(BaseModel):
     ud_user_broom_friction: Optional[float] = 1.0
     ud_user_broom_weight: Optional[float] = 1.0
     ud_user_broom_decay_coefficient: Optional[float] = 0.1
+    ud_user_broom_matches_played: Optional[int] = 0
     linked_gd_game_currency_repair: Optional[int] = None
     ud_user_broom_repair_quantity: Optional[int] = 0
 

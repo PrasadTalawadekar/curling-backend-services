@@ -627,6 +627,7 @@ class UdUserRock(Base):
     ud_user_rock_rebound_elasticity = Column(Float, default=1.0)
     ud_user_rock_max_speed = Column(Float, default=100.0)
     ud_user_rock_size = Column(Float, default=1.0)
+    ud_user_rock_matches_played = Column(Integer, default=0)
 
 class UdUserBroom(Base):
     __tablename__ = "ud_user_broom"
@@ -642,6 +643,7 @@ class UdUserBroom(Base):
     ud_user_broom_friction = Column(Float, default=0.1)
     ud_user_broom_weight = Column(Float, default=1.0)
     ud_user_broom_decay_coefficient = Column(Float, default=0.1)
+    ud_user_broom_matches_played = Column(Integer, default=0)
 
 class UdUserLoadout(Base):
     __tablename__ = "ud_user_loadout"

@@ -68,7 +68,7 @@ class SimStone:
 # Physics Simulation Engine (Mirrors Unity Exactly)
 # ---------------------------------------------------------------------------
 
-def simulate_single_stone(startX, angle_deg, power, curl, throw_start_z, base_friction, max_curl, curl_modifier, surf_factor):
+def simulate_single_stone(startX, angle_deg, power, curl, throw_start_z, base_friction, max_curl, curl_modifier, surf_factor, mass=20.0):
     """Simulate a single stone in isolation (no collisions). Returns final (x, z)."""
     x = startX
     z = throw_start_z
@@ -82,8 +82,8 @@ def simulate_single_stone(startX, angle_deg, power, curl, throw_start_z, base_fr
         spd = math.sqrt(vx*vx + vz*vz)
         dir_x, dir_z = vx / spd, vz / spd
 
-        accel_fx = -dir_x * base_friction * GRAVITY
-        accel_fz = -dir_z * base_friction * GRAVITY
+        accel_fx = -dir_x * mass * base_friction * GRAVITY
+        accel_fz = -dir_z * mass * base_friction * GRAVITY
 
         perp_x, perp_z = dir_z, -dir_x
         # NEGATE curl to match Unity's curlEffect = -selectedCurl logic
@@ -186,8 +186,8 @@ def simulate_full_board(stones: List[SimStone], max_steps: int = 3000) -> List[S
             dir_z = stone.vz / spd
 
             # Friction deceleration
-            accel_fx = -dir_x * stone.friction * GRAVITY
-            accel_fz = -dir_z * stone.friction * GRAVITY
+            accel_fx = -dir_x * stone.mass * stone.friction * GRAVITY
+            accel_fz = -dir_z * stone.mass * stone.friction * GRAVITY
 
             # Curl steering (perpendicular to velocity direction)
             perp_x = dir_z
@@ -330,7 +330,7 @@ def _build_sim_board(
 # Single-Stone Iterative Aiming
 # ---------------------------------------------------------------------------
 
-def find_perfect_aim(target_x, target_z, startX, curl, throw_start_z, base_friction, max_curl, curl_modifier, surf_factor, max_power, fixed_power=None):
+def find_perfect_aim(target_x, target_z, startX, curl, throw_start_z, base_friction, max_curl, curl_modifier, surf_factor, max_power, mass=20.0, fixed_power=None):
     """Iteratively refine angle and power so a single stone lands exactly at (target_x, target_z)."""
     dx = target_x - startX
     dz = target_z - throw_start_z
@@ -339,14 +339,14 @@ def find_perfect_aim(target_x, target_z, startX, curl, throw_start_z, base_frict
     if fixed_power is not None:
         power = fixed_power
     else:
-        power = math.sqrt(2.0 * (base_friction * GRAVITY) * dist)
+        power = math.sqrt(2.0 * (mass * base_friction * GRAVITY) * dist)
 
     # Initial angle guess with curl compensation
     angle_deg = math.degrees(math.atan2(dx, dz)) - ((-curl / max_curl) * 3.5)
 
     # Iterative refinement to guarantee it lands perfectly
     for _ in range(12):
-        fx, fz = simulate_single_stone(startX, angle_deg, power, curl, throw_start_z, base_friction, max_curl, curl_modifier, surf_factor)
+        fx, fz = simulate_single_stone(startX, angle_deg, power, curl, throw_start_z, base_friction, max_curl, curl_modifier, surf_factor, mass=mass)
         err_x = target_x - fx
         err_z = target_z - fz
 
@@ -383,7 +383,7 @@ def is_path_clear(
     throw_start_z: float, target_z: float,
     stones: List[dict],
     base_friction: float, max_curl: float, curl_modifier: float, surf_factor: float,
-    rink_width: float, rock_radius: float
+    rink_width: float, rock_radius: float, mass: float = 20.0
 ) -> float:
     """Simulates the arc and returns distance survived before hitting a stone. Returns float('inf') if clear."""
 
@@ -403,8 +403,8 @@ def is_path_clear(
         spd = math.sqrt(vx*vx + vz*vz)
         dir_x, dir_z = vx / spd, vz / spd
 
-        accel_fx = -dir_x * base_friction * GRAVITY
-        accel_fz = -dir_z * base_friction * GRAVITY
+        accel_fx = -dir_x * mass * base_friction * GRAVITY
+        accel_fz = -dir_z * mass * base_friction * GRAVITY
 
         perp_x, perp_z = dir_z, -dir_x
         # NEGATE curl to match Unity
@@ -531,6 +531,7 @@ def find_best_shot(
             angle, power = find_perfect_aim(
                 target_x, target_z, startX, curl, throw_start_z,
                 base_friction, max_curl, curl_modifier, surf_factor, max_power,
+                mass=bot_mass,
                 fixed_power=target_power
             )
 
@@ -543,7 +544,7 @@ def find_best_shot(
                 survival_dist = is_path_clear(
                     startX, angle, power, curl, throw_start_z, target_z,
                     stones, base_friction, max_curl, curl_modifier, surf_factor,
-                    rink_width, rock_radius
+                    rink_width, rock_radius, mass=bot_mass
                 )
                 if survival_dist != float('inf'):
                     # Path is blocked — track as fallback by survival distance
