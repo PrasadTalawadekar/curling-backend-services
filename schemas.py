@@ -817,6 +817,12 @@ class GdGameDetailsBase(BaseModel):
     gd_game_details_is_ios: Optional[bool] = False
     gd_game_details_store_url: Optional[str] = None
     gd_game_details_asset_bundle: Optional[str] = None
+    aim_direct_distance: Optional[float] = 1.5
+    aim_rock_grab_radius: Optional[float] = 0.95
+    aiming_angle_sensitivity: Optional[float] = 1.8
+    dragging_sensitivity: Optional[float] = 1.0
+    curl_sensitivity: Optional[float] = 1.0
+    power_sensitivity: Optional[float] = 1.0
 
 class GdGameDetailsCreate(GdGameDetailsBase):
     pass

@@ -197,6 +197,8 @@ def get_table_data(
                     row_dict[col] = val.isoformat()
                 elif isinstance(val, (bytes, bytearray)):
                     row_dict[col] = bool(val[0])
+                elif (col.startswith("is_") or col.endswith("_is")) and val is not None and isinstance(val, (int, bool)):
+                    row_dict[col] = bool(val)
                 else:
                     row_dict[col] = val
             output.append(row_dict)

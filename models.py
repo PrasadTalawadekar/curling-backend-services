@@ -545,6 +545,12 @@ class GdGameDetails(Base):
     gd_game_details_is_ios = Column(Boolean, default=False)
     gd_game_details_store_url = Column(String, nullable=True)
     gd_game_details_asset_bundle = Column(String, default="na")
+    aim_direct_distance = Column(Float, default=1.5)
+    aim_rock_grab_radius = Column(Float, default=0.95)
+    aiming_angle_sensitivity = Column(Float, default=1.8)
+    dragging_sensitivity = Column(Float, default=1.0)
+    curl_sensitivity = Column(Float, default=1.0)
+    power_sensitivity = Column(Float, default=1.0)
 
 class GdBotProfile(Base):
     __tablename__ = "gd_bot_profile"
