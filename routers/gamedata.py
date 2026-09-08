@@ -189,16 +189,36 @@ def get_table_data(
         columns = result.keys()
         rows = result.fetchall()
         
+        offset_sec = 0.0
+        try:
+            import time_utils
+            offset_sec = time_utils.get_time_status().get("offset_seconds", 0.0)
+        except Exception:
+            pass
+
         output = []
         for row in rows:
             row_dict = {}
             for col, val in zip(columns, row):
                 if hasattr(val, 'isoformat'):
-                    row_dict[col] = val.isoformat()
+                    dt_val = val
+                    if abs(offset_sec) > 0.001 and hasattr(val, '__sub__'):
+                        import datetime
+                        dt_val = val - datetime.timedelta(seconds=offset_sec)
+                    row_dict[col] = dt_val.isoformat()
                 elif isinstance(val, (bytes, bytearray)):
                     row_dict[col] = bool(val[0])
                 elif (col.startswith("is_") or col.endswith("_is")) and val is not None and isinstance(val, (int, bool)):
                     row_dict[col] = bool(val)
+                elif isinstance(val, str) and abs(offset_sec) > 0.001 and ("_date" in col or "_time" in col or col.endswith("_at")):
+                    try:
+                        import datetime
+                        clean_v = val.replace("Z", "+00:00")
+                        parsed_dt = datetime.datetime.fromisoformat(clean_v).replace(tzinfo=None)
+                        shifted_dt = parsed_dt - datetime.timedelta(seconds=offset_sec)
+                        row_dict[col] = shifted_dt.isoformat()
+                    except Exception:
+                        row_dict[col] = val
                 else:
                     row_dict[col] = val
             output.append(row_dict)
