@@ -3,24 +3,12 @@ from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 import models
 from database import engine, get_db, SessionLocal
-import time_utils
-from routers import gamedata, pvp_ws, leaderboard, users, auth, time_control
-from fastapi import Request
+from routers import gamedata, pvp_ws, leaderboard, users, auth
 
 app = FastAPI(title="Curling Mobile Game LiveOps, PvP & Leaderboard Backend")
 
-@app.middleware("http")
-async def add_server_time_header(request: Request, call_next):
-    response = await call_next(request)
-    server_time = time_utils.get_server_time()
-    date_rfc1123 = server_time.strftime("%a, %d %b %Y %H:%M:%S GMT")
-    response.headers["X-Server-Time"] = server_time.isoformat() + "Z"
-    response.headers["Date"] = date_rfc1123
-    return response
-
 # Register core routers
 app.include_router(auth.router)
-app.include_router(time_control.router)
 app.include_router(gamedata.router)
 app.include_router(pvp_ws.router)
 app.include_router(leaderboard.router)

@@ -7,7 +7,6 @@ from sqlalchemy import func
 
 from database import get_db, SessionLocal
 import models
-import time_utils
 
 router = APIRouter(
     prefix="/leaderboard",
@@ -22,7 +21,7 @@ def sync_leaderboard_data(db: Session, leaderboard_id: Optional[int] = None):
     Scans all user wallets in ud_user_wallet, extracts currency scores for active leaderboards,
     sorts descending, and upserts into ud_leaderboard_user.
     """
-    now = time_utils.get_server_time()
+    now = datetime.utcnow()
     query = db.query(models.GdLeaderboard).filter(models.GdLeaderboard.is_enabled == True)
     if leaderboard_id is not None:
         query = query.filter(models.GdLeaderboard.id == leaderboard_id)
@@ -105,7 +104,7 @@ def get_leaderboard(gd_leaderboard_name: str, db: Session = Depends(get_db)):
     # Check if dynamic refresh is needed based on gd_leaderboard_refresh_mins
     refresh_mins = getattr(leaderboard, "gd_leaderboard_refresh_mins", 5) or 5
     last_sync = _last_sync_times.get(leaderboard.id)
-    time_since_sync = (time_utils.get_server_time() - last_sync).total_seconds() if last_sync else 999999
+    time_since_sync = (datetime.utcnow() - last_sync).total_seconds() if last_sync else 999999
     
     if time_since_sync >= (refresh_mins * 60):
         try:
