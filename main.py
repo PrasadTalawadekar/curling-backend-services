@@ -3,7 +3,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 import models
 from database import engine, get_db, SessionLocal
-from routers import gamedata, pvp_ws, leaderboard, users, auth
+from routers import gamedata, pvp_ws, leaderboard, users, auth, time_router
 
 app = FastAPI(title="Curling Mobile Game LiveOps, PvP & Leaderboard Backend")
 
@@ -13,6 +13,7 @@ app.include_router(gamedata.router)
 app.include_router(pvp_ws.router)
 app.include_router(leaderboard.router)
 app.include_router(users.router)
+app.include_router(time_router.router)
 
 async def periodic_leaderboard_sync():
     """
