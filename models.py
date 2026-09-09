@@ -709,3 +709,46 @@ class UdUserMessageMaster(Base):
     is_read = Column(Boolean, default=False)
     is_claimed = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class AnalysisPvPMatches(Base):
+    __tablename__ = "analysis_pvp_matches"
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    mode_id = Column(String(64), nullable=False, index=True)
+    p1_user_id = Column(Integer, nullable=True)
+    p2_user_id = Column(Integer, nullable=True)
+    is_vs_bot = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+
+class AnalysisPvP(Base):
+    __tablename__ = "analysis_pvp"
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    p_user_id = Column(Integer, nullable=True, index=True)
+    p_match_type = Column(String(64), nullable=False, index=True)
+    p_surface_id = Column(Integer, default=0)
+    p_env_id = Column(Integer, default=0)
+    p_is_win = Column(Boolean, default=False)
+    p_is_draw = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+
+class AnalysisChallenge(Base):
+    __tablename__ = "analysis_challenge"
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    p_user_id = Column(Integer, nullable=True, index=True)
+    p_challenge_id = Column(Integer, nullable=False, index=True)
+    p_config_id = Column(Integer, default=0)
+    p_challenge_name = Column(String(128), nullable=True)
+    p_difficulty = Column(Integer, default=1)
+    p_is_win = Column(Boolean, default=False)
+    p_reward_amount = Column(Float, default=0.0)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+
+class AnalysisStore(Base):
+    __tablename__ = "analysis_store"
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    p_user_id = Column(Integer, nullable=True, index=True)
+    p_mapper_id = Column(Integer, nullable=False, index=True)
+    p_mapper_name = Column(String(128), nullable=True)
+    p_purchase_type = Column(String(64), nullable=True, index=True)
+    p_amount_spent = Column(Float, default=0.0)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+

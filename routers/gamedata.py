@@ -347,9 +347,49 @@ def execute_rpc(
             db.commit()
             return {"status": "ok"}
         
+        elif function_name == "record_analysis_pvp":
+            record = models.AnalysisPvP(
+                p_user_id=payload.get("p_user_id"),
+                p_match_type=str(payload.get("p_match_type", "pvp_online")),
+                p_surface_id=int(payload.get("p_surface_id", 0)),
+                p_env_id=int(payload.get("p_env_id", 0)),
+                p_is_win=bool(payload.get("p_is_win", False)),
+                p_is_draw=bool(payload.get("p_is_draw", False)),
+            )
+            db.add(record)
+            db.commit()
+            return {"status": "ok"}
+
+        elif function_name == "record_analysis_challenge":
+            record = models.AnalysisChallenge(
+                p_user_id=payload.get("p_user_id"),
+                p_challenge_id=int(payload.get("p_challenge_id", 0)),
+                p_config_id=int(payload.get("p_config_id", 0)),
+                p_challenge_name=payload.get("p_challenge_name"),
+                p_difficulty=int(payload.get("p_difficulty", 1)),
+                p_is_win=bool(payload.get("p_is_win", False)),
+                p_reward_amount=float(payload.get("p_reward_amount", 0.0)),
+            )
+            db.add(record)
+            db.commit()
+            return {"status": "ok"}
+
+        elif function_name == "record_analysis_store":
+            record = models.AnalysisStore(
+                p_user_id=payload.get("p_user_id"),
+                p_mapper_id=int(payload.get("p_mapper_id", 0)),
+                p_mapper_name=payload.get("p_mapper_name"),
+                p_purchase_type=payload.get("p_purchase_type"),
+                p_amount_spent=float(payload.get("p_amount_spent", 0.0)),
+            )
+            db.add(record)
+            db.commit()
+            return {"status": "ok"}
+
         # Generic RPC handler for other analytics functions
         return {"status": "ok", "function": function_name}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+
 

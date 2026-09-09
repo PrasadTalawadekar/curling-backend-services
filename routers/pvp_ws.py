@@ -16,10 +16,39 @@ import json
 import uuid
 import asyncio
 import random
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+import models
+from database import SessionLocal, get_db
 from services.bot_brain import generate_bot_actions
 
 router = APIRouter()
+
+# ---- Telemetry helper -----------------------------------------------------
+async def _record_match_telemetry(mode_id: str, p1_user_id: int = None, p2_user_id: int = None, is_vs_bot: bool = False):
+    def _insert():
+        try:
+            db = SessionLocal()
+            try:
+                record = models.AnalysisPvPMatches(
+                    mode_id=str(mode_id),
+                    p1_user_id=p1_user_id,
+                    p2_user_id=p2_user_id,
+                    is_vs_bot=is_vs_bot
+                )
+                db.add(record)
+                db.commit()
+            finally:
+                db.close()
+        except Exception as e:
+            print(f"[PvP-WS Telemetry] Error recording match: {e}")
+
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, _insert)
+    except Exception as e:
+        print(f"[PvP-WS Telemetry] Async task error: {e}")
 
 # ---- Matchmaking state (in-memory) ----------------------------------------
 # Maps mode_id -> waiting WebSocket
@@ -144,62 +173,98 @@ class BotSession:
 # ---- Main WebSocket endpoint -----------------------------------------------
 
 @router.websocket("/ws/matchmaking")
-async def websocket_endpoint(websocket: WebSocket, mode: str = "default", rock: int = 534):
-    global waiting_players
+async def websocket_endpoint(
+    websocket: WebSocket,
+    mode: str = "default",
+    rock: int = 534,
+    timeout: int = 3,
+    userId: int = None,
+    user_id: int = None
+):
+    global waiting_players, active_rooms
 
     await websocket.accept()
+    wait_timeout = max(1, timeout) if timeout else BOT_WAIT_SECONDS
+    eff_user_id = user_id if user_id is not None else userId
 
-    if mode not in waiting_players or waiting_players[mode] is None:
-        # --- Player 1: wait up to BOT_WAIT_SECONDS for a human opponent ---
-        waiting_players[mode] = {"ws": websocket, "rock": rock}
-        await websocket.send_json({"type": "waiting", "message": f"Waiting for opponent in mode {mode}..."})
-
-        # Give a human opponent BOT_WAIT_SECONDS to join
-        try:
-            await asyncio.wait_for(_wait_for_opponent(websocket), timeout=BOT_WAIT_SECONDS)
-        except asyncio.TimeoutError:
-            pass
-
-        if waiting_players.get(mode) and waiting_players[mode]["ws"] == websocket:
-            # No human joined — spawn a bot
-            waiting_players[mode] = None
-            await _run_bot_match(websocket)
-        elif websocket in active_rooms:
-            # A human joined! Keep P1 alive to relay messages.
-            try:
-                while True:
-                    data = await websocket.receive_text()
-                    if websocket in active_rooms:
-                        await active_rooms[websocket].relay(websocket, json.loads(data))
-            except WebSocketDisconnect:
-                _cleanup_room(websocket)
-
-    else:
-        # --- Player 2: a real human joined ---
-        p1_data = waiting_players[mode]
-        p1_ws = p1_data["ws"]
-        p1_rock = p1_data["rock"]
-        p2_ws = websocket
-        p2_rock = rock
+    # 1. Check if a human opponent is already waiting in this mode
+    p1_entry = waiting_players.get(mode)
+    if p1_entry is not None and p1_entry.get("ws") is not None:
+        p1_ws = p1_entry["ws"]
+        p1_rock = p1_entry["rock"]
+        p1_event = p1_entry["event"]
+        p1_uid = p1_entry.get("user_id")
         waiting_players[mode] = None
 
-        room = MatchRoom(p1_ws, p2_ws)
+        room = MatchRoom(p1_ws, websocket)
         active_rooms[p1_ws] = room
-        active_rooms[p2_ws] = room
+        active_rooms[websocket] = room
 
         match_seed = random.randint(1000, 999999)
-        
-        # Randomize who is Player 1 (Red) and Player 2 (Blue). Player 1 always goes first.
-        if random.choice([True, False]):
-            p1_ws_player_id = 1
-            p2_ws_player_id = 2
-        else:
-            p1_ws_player_id = 2
-            p2_ws_player_id = 1
-            
-        await p1_ws.send_json({"type": "match_start", "player_id": p1_ws_player_id, "your_turn": (p1_ws_player_id == 1),  "match_seed": match_seed, "opponent_rock_id": p2_rock})
-        await p2_ws.send_json({"type": "match_start", "player_id": p2_ws_player_id, "your_turn": (p2_ws_player_id == 1), "match_seed": match_seed, "opponent_rock_id": p1_rock})
+        # Randomize who is Player 1 (Red) and Player 2 (Blue)
+        p1_id = 1 if random.choice([True, False]) else 2
+        p2_id = 2 if p1_id == 1 else 1
 
+        try:
+            await p1_ws.send_json({
+                "type": "match_start",
+                "player_id": p1_id,
+                "your_turn": (p1_id == 1),
+                "match_seed": match_seed,
+                "opponent_rock_id": rock,
+                "is_vs_bot": False
+            })
+            await websocket.send_json({
+                "type": "match_start",
+                "player_id": p2_id,
+                "your_turn": (p2_id == 1),
+                "match_seed": match_seed,
+                "opponent_rock_id": p1_rock,
+                "is_vs_bot": False
+            })
+        except Exception as e:
+            print(f"[PvP-WS] Error notifying players: {e}")
+
+        # Record match in database asynchronously
+        asyncio.create_task(_record_match_telemetry(mode_id=mode, p1_user_id=p1_uid, p2_user_id=eff_user_id, is_vs_bot=False))
+
+        # Unblock Player 1's waiting task
+        p1_event.set()
+
+        # Handle Player 2 message relay
+        try:
+            while True:
+                data = await websocket.receive_text()
+                if websocket in active_rooms:
+                    await active_rooms[websocket].relay(websocket, json.loads(data))
+        except WebSocketDisconnect:
+            _cleanup_room(websocket)
+        return
+
+    # 2. Player 1: Wait up to wait_timeout for a human opponent
+    matched_event = asyncio.Event()
+    waiting_players[mode] = {"ws": websocket, "rock": rock, "event": matched_event, "user_id": eff_user_id}
+    
+    try:
+        await websocket.send_json({"type": "waiting", "message": f"Waiting for opponent in mode {mode}..."})
+    except Exception:
+        waiting_players[mode] = None
+        return
+
+    try:
+        await asyncio.wait_for(matched_event.wait(), timeout=wait_timeout)
+    except asyncio.TimeoutError:
+        pass
+
+    # 3. Check result after timeout
+    if waiting_players.get(mode) and waiting_players[mode]["ws"] == websocket:
+        # No human joined within timeout — spawn a bot match
+        p1_uid = waiting_players[mode].get("user_id")
+        waiting_players[mode] = None
+        asyncio.create_task(_record_match_telemetry(mode_id=mode, p1_user_id=p1_uid, p2_user_id=None, is_vs_bot=True))
+        await _run_bot_match(websocket)
+    elif websocket in active_rooms:
+        # A human joined! Run relay loop for Player 1
         try:
             while True:
                 data = await websocket.receive_text()
@@ -211,30 +276,23 @@ async def websocket_endpoint(websocket: WebSocket, mode: str = "default", rock: 
 
 # ---- Helpers ----------------------------------------------------------------
 
-async def _wait_for_opponent(p1_ws: WebSocket):
-    """
-    Keep the P1 connection alive while waiting.
-    If a message arrives and we are now in a room, relay it.
-    Raises WebSocketDisconnect if the player leaves.
-    """
-    while True:
-        data = await p1_ws.receive_text()
-        if p1_ws in active_rooms:
-            await active_rooms[p1_ws].relay(p1_ws, json.loads(data))
-
-
 async def _run_bot_match(p1_ws: WebSocket):
     """Run a full match where the server is Player 2 (the bot)."""
     match_seed = random.randint(1000, 999999)
     bot_session = BotSession(p1_ws, match_seed)
 
-    await p1_ws.send_json({
-        "type": "match_start",
-        "player_id": 1,
-        "your_turn": True,
-        "match_seed": match_seed,
-        "is_vs_bot": True       # flag Unity so it knows it's a bot match
-    })
+    try:
+        await p1_ws.send_json({
+            "type": "match_start",
+            "player_id": 1,
+            "your_turn": True,
+            "match_seed": match_seed,
+            "is_vs_bot": True,       # flag Unity so it knows it's a bot match
+            "opponent_rock_id": 535
+        })
+    except Exception as e:
+        print(f"[PvP-WS] Error sending match_start to player: {e}")
+        return
 
     try:
         while True:
@@ -264,3 +322,36 @@ async def _notify_disconnect(ws: WebSocket):
         await ws.send_json({"type": "opponent_disconnected"})
     except Exception:
         pass
+
+
+# ---- Analytics REST Endpoints -----------------------------------------------
+
+@router.get("/api/admin/analytics/pvp")
+def get_pvp_analytics(db: Session = Depends(get_db)):
+    """
+    Returns PvP mode rankings and match counts from analysis_pvp_matches table.
+    """
+    try:
+        results = db.query(
+            models.AnalysisPvPMatches.mode_id,
+            func.count(models.AnalysisPvPMatches.id).label("total_matches"),
+            func.sum(func.case((models.AnalysisPvPMatches.is_vs_bot == False, 1), else_=0)).label("human_matches"),
+            func.sum(func.case((models.AnalysisPvPMatches.is_vs_bot == True, 1), else_=0)).label("bot_matches"),
+            func.max(models.AnalysisPvPMatches.created_at).label("last_match_at")
+        ).group_by(models.AnalysisPvPMatches.mode_id).order_by(func.count(models.AnalysisPvPMatches.id).desc()).all()
+
+        return {
+            "status": "ok",
+            "pvp_mode_rankings": [
+                {
+                    "mode_id": r.mode_id,
+                    "total_matches": int(r.total_matches),
+                    "human_matches": int(r.human_matches or 0),
+                    "bot_matches": int(r.bot_matches or 0),
+                    "last_match_at": r.last_match_at.isoformat() if r.last_match_at else None
+                }
+                for r in results
+            ]
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e), "pvp_mode_rankings": []}
