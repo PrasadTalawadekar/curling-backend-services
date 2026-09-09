@@ -18,7 +18,7 @@ import asyncio
 import random
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, case
 import models
 from database import SessionLocal, get_db
 from services.bot_brain import generate_bot_actions
@@ -335,8 +335,8 @@ def get_pvp_analytics(db: Session = Depends(get_db)):
         results = db.query(
             models.AnalysisPvPMatches.mode_id,
             func.count(models.AnalysisPvPMatches.id).label("total_matches"),
-            func.sum(func.case((models.AnalysisPvPMatches.is_vs_bot == False, 1), else_=0)).label("human_matches"),
-            func.sum(func.case((models.AnalysisPvPMatches.is_vs_bot == True, 1), else_=0)).label("bot_matches"),
+            func.sum(case((models.AnalysisPvPMatches.is_vs_bot == False, 1), else_=0)).label("human_matches"),
+            func.sum(case((models.AnalysisPvPMatches.is_vs_bot == True, 1), else_=0)).label("bot_matches"),
             func.max(models.AnalysisPvPMatches.created_at).label("last_match_at")
         ).group_by(models.AnalysisPvPMatches.mode_id).order_by(func.count(models.AnalysisPvPMatches.id).desc()).all()
 
