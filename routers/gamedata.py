@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Body
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 import inspect
 from typing import Any, Dict, List, Union
 from database import get_db
@@ -338,25 +339,55 @@ def execute_rpc(
 ):
     try:
         if function_name == "record_daily_activity":
-            record = models.AnalysisUserDailyActivity(
-                p_user_id=payload.get("p_user_id"),
-                p_platform=payload.get("p_platform", "Android"),
-                p_app_version=payload.get("p_app_version", "1.0.0"),
-            )
-            db.add(record)
-            db.commit()
-            return {"status": "ok"}
-        
-        elif function_name == "record_analysis_pvp":
-            record = models.AnalysisPvP(
-                p_user_id=payload.get("p_user_id"),
-                p_match_type=str(payload.get("p_match_type", "pvp_online")),
-                p_surface_id=int(payload.get("p_surface_id", 0)),
-                p_env_id=int(payload.get("p_env_id", 0)),
-                p_is_win=bool(payload.get("p_is_win", False)),
-                p_is_draw=bool(payload.get("p_is_draw", False)),
-            )
-            db.add(record)
+            user_id = payload.get("p_user_id")
+            if not user_id:
+                return {"status": "error", "message": "p_user_id required"}
+            platform = str(payload.get("p_platform", "Android"))
+            country = str(payload.get("p_country", "Unknown"))
+            app_version = str(payload.get("p_app_version", "1.0.0"))
+            time_spent_mins = float(payload.get("time_spent_mins", 0.0))
+            interstitial_ads = int(payload.get("interstitial_ads_watched", payload.get("interstitial_ads", 0)))
+            rewarded_ads = int(payload.get("rewarded_ads_watched", payload.get("rewarded_ads", 0)))
+            pvp_matches = int(payload.get("pvp_matches_played", payload.get("pvp_matches", 0)))
+            challenges = int(payload.get("challenges_played", payload.get("challenges", 0)))
+            is_payer = bool(payload.get("is_payer", False))
+
+            stmt = text("""
+                INSERT INTO analysis_user_daily_activity (
+                    p_user_id, activity_date, p_platform, p_country, p_app_version,
+                    p_first_seen_date, time_spent_mins, interstitial_ads_watched,
+                    rewarded_ads_watched, pvp_matches_played, challenges_played,
+                    is_payer, last_active_at
+                ) VALUES (
+                    :user_id, CURDATE(), :platform, :country, :app_version,
+                    NOW(), :time_spent_mins, :interstitial_ads,
+                    :rewarded_ads, :pvp_matches, :challenges,
+                    :is_payer, NOW()
+                )
+                ON DUPLICATE KEY UPDATE
+                    p_platform = VALUES(p_platform),
+                    p_country = VALUES(p_country),
+                    p_app_version = VALUES(p_app_version),
+                    time_spent_mins = time_spent_mins + VALUES(time_spent_mins),
+                    interstitial_ads_watched = interstitial_ads_watched + VALUES(interstitial_ads_watched),
+                    rewarded_ads_watched = rewarded_ads_watched + VALUES(rewarded_ads_watched),
+                    pvp_matches_played = pvp_matches_played + VALUES(pvp_matches_played),
+                    challenges_played = challenges_played + VALUES(challenges_played),
+                    is_payer = (is_payer OR VALUES(is_payer)),
+                    last_active_at = NOW()
+            """)
+            db.execute(stmt, {
+                "user_id": user_id,
+                "platform": platform,
+                "country": country,
+                "app_version": app_version,
+                "time_spent_mins": time_spent_mins,
+                "interstitial_ads": interstitial_ads,
+                "rewarded_ads": rewarded_ads,
+                "pvp_matches": pvp_matches,
+                "challenges": challenges,
+                "is_payer": is_payer
+            })
             db.commit()
             return {"status": "ok"}
 
@@ -366,12 +397,50 @@ def execute_rpc(
                 p_challenge_id=int(payload.get("p_challenge_id", 0)),
                 p_config_id=int(payload.get("p_config_id", 0)),
                 p_challenge_name=payload.get("p_challenge_name"),
-                p_difficulty=int(payload.get("p_difficulty", 1)),
+                p_attempts=int(payload.get("p_attempts", 1)),
+                p_time_taken_seconds=float(payload.get("p_time_taken_seconds", 0.0)),
+                p_rock_id=int(payload.get("p_rock_id", 0)),
                 p_is_win=bool(payload.get("p_is_win", False)),
                 p_reward_amount=float(payload.get("p_reward_amount", 0.0)),
             )
             db.add(record)
             db.commit()
+            return {"status": "ok"}
+
+        elif function_name == "record_pvp_match_result":
+            match_id = payload.get("match_id")
+            user_id = payload.get("p_user_id")
+            winner_id = payload.get("winner_user_id")
+            p1_loadout = payload.get("p1_used_loadout")
+            p2_loadout = payload.get("p2_used_loadout")
+            surface_id = int(payload.get("surface_id", 0))
+            env_id = int(payload.get("env_id", 0))
+            p1_score = int(payload.get("p1_score", 0))
+            p2_score = int(payload.get("p2_score", 0))
+            snapshot_csv = payload.get("match_end_snapshot_csv", "")
+            duration_sec = float(payload.get("duration_seconds", 0.0))
+
+            query = db.query(models.AnalysisPvPMatches)
+            if match_id:
+                match_row = query.filter(models.AnalysisPvPMatches.id == int(match_id)).first()
+            elif user_id:
+                match_row = query.filter(
+                    (models.AnalysisPvPMatches.p1_user_id == user_id) | (models.AnalysisPvPMatches.p2_user_id == user_id)
+                ).order_by(models.AnalysisPvPMatches.id.desc()).first()
+            else:
+                match_row = None
+
+            if match_row:
+                if winner_id is not None: match_row.winner_user_id = winner_id
+                if p1_loadout: match_row.p1_used_loadout = p1_loadout
+                if p2_loadout: match_row.p2_used_loadout = p2_loadout
+                if surface_id: match_row.surface_id = surface_id
+                if env_id: match_row.env_id = env_id
+                match_row.p1_score = p1_score
+                match_row.p2_score = p2_score
+                if snapshot_csv: match_row.match_end_snapshot_csv = snapshot_csv
+                if duration_sec > 0: match_row.duration_seconds = duration_sec
+                db.commit()
             return {"status": "ok"}
 
         elif function_name == "record_analysis_store":

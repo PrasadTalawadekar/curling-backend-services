@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, JSON, DateTime, ForeignKey, Sequence
+from sqlalchemy import Column, Integer, String, Float, Boolean, JSON, DateTime, Date, ForeignKey, Sequence, Text
 from sqlalchemy.orm import relationship
 from database import Base
 import datetime
@@ -670,12 +670,20 @@ class UdUserChallenge(Base):
 
 class AnalysisUserDailyActivity(Base):
     __tablename__ = "analysis_user_daily_activity"
-    id = Column(Integer, global_id_seq, primary_key=True, index=True)
-    p_user_id = Column(Integer, ForeignKey("ud_user_master.id", ondelete="CASCADE"))
-    p_platform = Column(String, default="Android")
-    p_app_version = Column(String, default="1.0.0")
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    p_user_id = Column(Integer, nullable=False, index=True)
+    activity_date = Column(Date, default=datetime.date.today, nullable=False, index=True)
+    p_platform = Column(String(32), default="Android")
+    p_country = Column(String(64), default="Unknown")
+    p_app_version = Column(String(32), default="1.0.0")
     p_first_seen_date = Column(DateTime, default=datetime.datetime.utcnow)
-    activity_date = Column(DateTime, default=datetime.datetime.utcnow)
+    time_spent_mins = Column(Float, default=0.0)
+    interstitial_ads_watched = Column(Integer, default=0)
+    rewarded_ads_watched = Column(Integer, default=0)
+    pvp_matches_played = Column(Integer, default=0)
+    challenges_played = Column(Integer, default=0)
+    is_payer = Column(Boolean, default=False)
+    last_active_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class UdLeaderboardUser(Base):
     __tablename__ = "ud_leaderboard_user"
@@ -714,20 +722,18 @@ class AnalysisPvPMatches(Base):
     __tablename__ = "analysis_pvp_matches"
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     mode_id = Column(String(64), nullable=False, index=True)
-    p1_user_id = Column(Integer, nullable=True)
-    p2_user_id = Column(Integer, nullable=True)
+    p1_user_id = Column(Integer, nullable=True, index=True)
+    p2_user_id = Column(Integer, nullable=True, index=True)
     is_vs_bot = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
-
-class AnalysisPvP(Base):
-    __tablename__ = "analysis_pvp"
-    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
-    p_user_id = Column(Integer, nullable=True, index=True)
-    p_match_type = Column(String(64), nullable=False, index=True)
-    p_surface_id = Column(Integer, default=0)
-    p_env_id = Column(Integer, default=0)
-    p_is_win = Column(Boolean, default=False)
-    p_is_draw = Column(Boolean, default=False)
+    winner_user_id = Column(Integer, nullable=True, index=True)
+    p1_used_loadout = Column(JSON, nullable=True)
+    p2_used_loadout = Column(JSON, nullable=True)
+    surface_id = Column(Integer, default=0)
+    env_id = Column(Integer, default=0)
+    p1_score = Column(Integer, default=0)
+    p2_score = Column(Integer, default=0)
+    match_end_snapshot_csv = Column(Text, nullable=True)
+    duration_seconds = Column(Float, default=0.0)
     created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
 
 class AnalysisChallenge(Base):
@@ -737,7 +743,9 @@ class AnalysisChallenge(Base):
     p_challenge_id = Column(Integer, nullable=False, index=True)
     p_config_id = Column(Integer, default=0)
     p_challenge_name = Column(String(128), nullable=True)
-    p_difficulty = Column(Integer, default=1)
+    p_attempts = Column(Integer, default=1)
+    p_time_taken_seconds = Column(Float, default=0.0)
+    p_rock_id = Column(Integer, default=0)
     p_is_win = Column(Boolean, default=False)
     p_reward_amount = Column(Float, default=0.0)
     created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
@@ -751,4 +759,5 @@ class AnalysisStore(Base):
     p_purchase_type = Column(String(64), nullable=True, index=True)
     p_amount_spent = Column(Float, default=0.0)
     created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+
 
