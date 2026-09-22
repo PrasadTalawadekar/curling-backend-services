@@ -6,12 +6,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-INSTANCE_CONNECTION_NAME = os.getenv("INSTANCE_CONNECTION_NAME", "curling-mobile-game:asia-south1:curling-db")
+INSTANCE_CONNECTION_NAME = os.getenv("INSTANCE_CONNECTION_NAME", "curling-mobile-game:asia-south1:curling-db-standard")
 DB_TYPE = os.getenv("DB_TYPE", "mysql").lower()
 DB_USER = os.getenv("DB_USER", "siddhi")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 DB_NAME = os.getenv("DB_NAME", "curling_db")
-DB_HOST = os.getenv("DB_HOST", "34.14.133.235")
+DB_HOST = os.getenv("DB_HOST", "8.234.65.93")
 DB_PORT = os.getenv("DB_PORT", "3306" if "mysql" in DB_TYPE else "5432")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
