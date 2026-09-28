@@ -39,20 +39,48 @@ async def periodic_leaderboard_sync():
             print(f"[Main] Error in periodic_leaderboard_sync: {e}")
             await asyncio.sleep(60)
 
+import os
+from fastapi.responses import HTMLResponse, PlainTextResponse
+
+# Cache landing HTML
+LANDING_HTML_PATH = os.path.join(os.path.dirname(__file__), "templates", "landing.html")
+LANDING_HTML_CONTENT = ""
+if os.path.exists(LANDING_HTML_PATH):
+    with open(LANDING_HTML_PATH, "r", encoding="utf-8") as f:
+        LANDING_HTML_CONTENT = f.read()
+
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(periodic_leaderboard_sync())
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 def read_root():
+    if LANDING_HTML_CONTENT:
+        return HTMLResponse(content=LANDING_HTML_CONTENT, status_code=200)
+    return HTMLResponse(content="<h1>Curling Mobile Game</h1><p>Welcome to Curling Mobile Game!</p>", status_code=200)
+
+@app.get("/app-ads.txt", response_class=PlainTextResponse)
+def get_app_ads():
+    return PlainTextResponse("google.com, pub-1474686776703930, DIRECT, f08c47fec0942fa0\n", media_type="text/plain")
+
+@app.get("/privacy-policy", response_class=HTMLResponse)
+def get_privacy_policy():
+    if LANDING_HTML_CONTENT:
+        return HTMLResponse(content=LANDING_HTML_CONTENT, status_code=200)
+    return HTMLResponse(content="<h1>Privacy Policy</h1><p>Curling Mobile Game Privacy Policy</p>", status_code=200)
+
+@app.get("/api")
+def read_api_metadata():
     return {
         "service": "Curling Mobile Game LiveOps, PvP & Leaderboard Backend",
         "status": "online",
         "rest_api": "/rest/v1/{table_name}",
         "pvp_websocket": "/ws/matchmaking",
-        "leaderboard": "/leaderboard"
+        "leaderboard": "/leaderboard",
+        "app_ads": "/app-ads.txt"
     }
 
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
