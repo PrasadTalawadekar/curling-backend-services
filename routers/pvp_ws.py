@@ -39,16 +39,95 @@ async def _record_match_telemetry(mode_id: str, p1_user_id: int = None, p2_user_
                 )
                 db.add(record)
                 db.commit()
+                db.refresh(record)
+                return record.id
             finally:
                 db.close()
         except Exception as e:
             print(f"[PvP-WS Telemetry] Error recording match: {e}")
+            return None
 
     try:
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, _insert)
+        return await loop.run_in_executor(None, _insert)
     except Exception as e:
         print(f"[PvP-WS Telemetry] Async task error: {e}")
+        return None
+
+async def _update_match_snapshots_in_db(match_id: int, chance_snapshots_dict: dict):
+    if not match_id:
+        return
+    def _update():
+        try:
+            db = SessionLocal()
+            try:
+                row = db.query(models.AnalysisPvPMatches).filter(models.AnalysisPvPMatches.id == match_id).first()
+                if row:
+                    current_data = {}
+                    if row.match_end_snapshot_csv:
+                        try:
+                            current_data = json.loads(row.match_end_snapshot_csv)
+                            if not isinstance(current_data, dict):
+                                current_data = {"raw_snapshot": row.match_end_snapshot_csv}
+                        except Exception:
+                            current_data = {"raw_snapshot": row.match_end_snapshot_csv}
+                    current_data["chances"] = chance_snapshots_dict
+                    row.match_end_snapshot_csv = json.dumps(current_data)
+                    db.commit()
+            finally:
+                db.close()
+        except Exception as e:
+            print(f"[PvP-WS Telemetry] Error updating chance snapshots: {e}")
+
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, _update)
+    except Exception as e:
+        print(f"[PvP-WS Telemetry] Async update error: {e}")
+
+def parse_snapshot(csv_str: str):
+    if not csv_str:
+        return []
+    stones = []
+    for item in csv_str.strip().split(";"):
+        parts = item.strip().split(":")
+        if len(parts) >= 4:
+            try:
+                team = int(parts[0])
+                dist = float(parts[1])
+                pos_x = float(parts[2])
+                pos_z = float(parts[3])
+                stones.append({"team": team, "dist": dist, "x": pos_x, "z": pos_z})
+            except ValueError:
+                pass
+    return stones
+
+def compare_snapshots(csv1: str, csv2: str, desync_threshold: float = 0.05):
+    s1 = parse_snapshot(csv1)
+    s2 = parse_snapshot(csv2)
+    if not s1 or not s2:
+        return {"desync": False, "max_delta_m": 0.0, "stone_count_diff": abs(len(s1) - len(s2))}
+    
+    if len(s1) != len(s2):
+        return {"desync": True, "max_delta_m": 999.0, "stone_count_diff": abs(len(s1) - len(s2))}
+    
+    s2_remaining = list(s2)
+    max_delta = 0.0
+    for st1 in s1:
+        same_team = [st for st in s2_remaining if st["team"] == st1["team"]]
+        if not same_team:
+            return {"desync": True, "max_delta_m": 999.0, "team_mismatch": True}
+        best_st = min(same_team, key=lambda st: (st["x"] - st1["x"])**2 + (st["z"] - st1["z"])**2)
+        delta = ((best_st["x"] - st1["x"])**2 + (best_st["z"] - st1["z"])**2)**0.5
+        if delta > max_delta:
+            max_delta = delta
+        s2_remaining.remove(best_st)
+        
+    return {
+        "desync": max_delta > desync_threshold,
+        "max_delta_m": round(max_delta, 4),
+        "stone_count_diff": 0
+    }
 
 # ---- Matchmaking state (in-memory) ----------------------------------------
 # Maps mode_id -> waiting WebSocket
@@ -58,16 +137,46 @@ active_rooms: dict = {}
 BOT_WAIT_SECONDS = 3   # Wait this long for a real opponent before spawning a bot
 
 
+
 # ---- Match Room (real P1 vs real P2) --------------------------------------
 
 class MatchRoom:
-    def __init__(self, p1_ws: WebSocket, p2_ws: WebSocket):
+    def __init__(self, p1_ws: WebSocket, p2_ws: WebSocket, match_db_id: int = None):
         self.p1_ws = p1_ws
         self.p2_ws = p2_ws
         self.room_id = str(uuid.uuid4())
+        self.match_db_id = match_db_id
+        self.chance_snapshots = {}
 
     async def relay(self, sender_ws: WebSocket, message: dict):
         target = self.p2_ws if sender_ws == self.p1_ws else self.p1_ws
+
+        msg_type = message.get("type")
+        if msg_type == "chance_snapshot":
+            chance_num = str(message.get("chance", 0))
+            player_role = message.get("player_id", 1 if sender_ws == self.p1_ws else 2)
+            snapshot_csv = message.get("snapshot", "")
+
+            if chance_num not in self.chance_snapshots:
+                self.chance_snapshots[chance_num] = {}
+
+            if player_role == 1:
+                self.chance_snapshots[chance_num]["u1"] = snapshot_csv
+            else:
+                self.chance_snapshots[chance_num]["u2"] = snapshot_csv
+
+            u1_snap = self.chance_snapshots[chance_num].get("u1")
+            u2_snap = self.chance_snapshots[chance_num].get("u2")
+            if u1_snap and u2_snap:
+                comparison = compare_snapshots(u1_snap, u2_snap)
+                self.chance_snapshots[chance_num].update(comparison)
+                if comparison.get("desync"):
+                    print(f"[PvP-WS Desync Alert] Match {self.match_db_id} Chance {chance_num} desync: delta={comparison.get('max_delta_m')}m")
+
+            if self.match_db_id:
+                asyncio.create_task(_update_match_snapshots_in_db(self.match_db_id, self.chance_snapshots))
+            return
+
         await target.send_json(message)
 
 
@@ -80,9 +189,11 @@ class BotSession:
     and streams back a human-like action sequence.
     """
 
-    def __init__(self, real_player_ws: WebSocket, match_seed: int):
+    def __init__(self, real_player_ws: WebSocket, match_seed: int, match_db_id: int = None):
         self.real_player_ws = real_player_ws
         self.match_seed = match_seed
+        self.match_db_id = match_db_id
+        self.chance_snapshots = {}
         random.seed(match_seed)
 
     async def handle_message(self, message: dict):
@@ -196,14 +307,20 @@ async def websocket_endpoint(
         p1_uid = p1_entry.get("user_id")
         waiting_players[mode] = None
 
-        room = MatchRoom(p1_ws, websocket)
-        active_rooms[p1_ws] = room
-        active_rooms[websocket] = room
-
         match_seed = random.randint(1000, 999999)
         # Randomize who is Player 1 (Red) and Player 2 (Blue)
         p1_id = 1 if random.choice([True, False]) else 2
         p2_id = 2 if p1_id == 1 else 1
+
+        u1_uid = p1_uid if p1_id == 1 else eff_user_id
+        u2_uid = eff_user_id if p1_id == 1 else p1_uid
+
+        # Record match in database first to obtain match_id
+        match_db_id = await _record_match_telemetry(mode_id=mode, p1_user_id=u1_uid, p2_user_id=u2_uid, is_vs_bot=False)
+
+        room = MatchRoom(p1_ws, websocket, match_db_id=match_db_id)
+        active_rooms[p1_ws] = room
+        active_rooms[websocket] = room
 
         try:
             await p1_ws.send_json({
@@ -212,7 +329,8 @@ async def websocket_endpoint(
                 "your_turn": (p1_id == 1),
                 "match_seed": match_seed,
                 "opponent_rock_id": rock,
-                "is_vs_bot": False
+                "is_vs_bot": False,
+                "match_id": match_db_id
             })
             await websocket.send_json({
                 "type": "match_start",
@@ -220,13 +338,11 @@ async def websocket_endpoint(
                 "your_turn": (p2_id == 1),
                 "match_seed": match_seed,
                 "opponent_rock_id": p1_rock,
-                "is_vs_bot": False
+                "is_vs_bot": False,
+                "match_id": match_db_id
             })
         except Exception as e:
             print(f"[PvP-WS] Error notifying players: {e}")
-
-        # Record match in database asynchronously
-        asyncio.create_task(_record_match_telemetry(mode_id=mode, p1_user_id=p1_uid, p2_user_id=eff_user_id, is_vs_bot=False))
 
         # Unblock Player 1's waiting task
         p1_event.set()
@@ -261,8 +377,8 @@ async def websocket_endpoint(
         # No human joined within timeout — spawn a bot match
         p1_uid = waiting_players[mode].get("user_id")
         waiting_players[mode] = None
-        asyncio.create_task(_record_match_telemetry(mode_id=mode, p1_user_id=p1_uid, p2_user_id=None, is_vs_bot=True))
-        await _run_bot_match(websocket)
+        match_db_id = await _record_match_telemetry(mode_id=mode, p1_user_id=p1_uid, p2_user_id=None, is_vs_bot=True)
+        await _run_bot_match(websocket, match_db_id=match_db_id)
     elif websocket in active_rooms:
         # A human joined! Run relay loop for Player 1
         try:
@@ -276,10 +392,10 @@ async def websocket_endpoint(
 
 # ---- Helpers ----------------------------------------------------------------
 
-async def _run_bot_match(p1_ws: WebSocket):
+async def _run_bot_match(p1_ws: WebSocket, match_db_id: int = None):
     """Run a full match where the server is Player 2 (the bot)."""
     match_seed = random.randint(1000, 999999)
-    bot_session = BotSession(p1_ws, match_seed)
+    bot_session = BotSession(p1_ws, match_seed, match_db_id=match_db_id)
 
     try:
         await p1_ws.send_json({
@@ -288,7 +404,8 @@ async def _run_bot_match(p1_ws: WebSocket):
             "your_turn": True,
             "match_seed": match_seed,
             "is_vs_bot": True,       # flag Unity so it knows it's a bot match
-            "opponent_rock_id": 535
+            "opponent_rock_id": 535,
+            "match_id": match_db_id
         })
     except Exception as e:
         print(f"[PvP-WS] Error sending match_start to player: {e}")
@@ -303,6 +420,15 @@ async def _run_bot_match(p1_ws: WebSocket):
             if message.get("type") == "bot_turn_request":
                 # Run bot brain asynchronously so we don't block the receive loop
                 asyncio.create_task(bot_session.handle_message(message))
+            elif message.get("type") == "chance_snapshot":
+                chance_num = str(message.get("chance", 0))
+                snapshot_csv = message.get("snapshot", "")
+                bot_session.chance_snapshots[chance_num] = {
+                    "u1": snapshot_csv,
+                    "vs_bot": True
+                }
+                if match_db_id:
+                    asyncio.create_task(_update_match_snapshots_in_db(match_db_id, bot_session.chance_snapshots))
             # All other messages (turn_swap, etc.) are noted but need no relay
     except WebSocketDisconnect:
         print(f"[PvP-WS] Bot match ended — player disconnected.")
@@ -355,3 +481,4 @@ def get_pvp_analytics(db: Session = Depends(get_db)):
         }
     except Exception as e:
         return {"status": "error", "message": str(e), "pvp_mode_rankings": []}
+
