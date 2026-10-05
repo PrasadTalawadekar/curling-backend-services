@@ -251,6 +251,17 @@ class GdAdMob(Base):
     gd_ad_mob_short_code = Column(String)
     gd_ad_mob_count_for_reward = Column(Integer, default=1)
 
+class GdInterstitialAd(Base):
+    __tablename__ = "gd_interstitial_ad"
+    id = Column(Integer, global_id_seq, primary_key=True, index=True)
+    gd_interstitial_ad_name = Column(String, index=True)
+    is_enabled = Column(Boolean, default=True)
+    is_gd_interstitial_ad = Column(Boolean, default=True)
+    linked_gd_ad_mob = Column(Integer, ForeignKey("gd_ad_mob.id", ondelete="CASCADE"), nullable=True)
+    criteria = Column(JSON, nullable=True)
+    priority = Column(Integer, default=1)
+    cooldown_seconds = Column(Integer, default=60)
+
 class GdGiveAway(Base):
     __tablename__ = "gd_give_away"
     id = Column(Integer, global_id_seq, primary_key=True, index=True)
