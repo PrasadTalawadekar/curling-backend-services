@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Curling Mobile Game — The Ultimate Competitive Ice Sport</title>
     <meta name="description" content="Experience realistic curling on mobile! Master physics-based stone delivery, sweeping mechanics, real-time 1v1 PvP matches, and global tournaments.">
+    
+    <!-- OpenGraph & Twitter Cards -->
+    <meta property="og:title" content="Curling Mobile Game — The Ultimate Competitive Ice Sport">
+    <meta property="og:description" content="Master realistic stone delivery, dynamic sweeping, and real-time 1v1 PvP multiplayer on mobile. Play now!">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://curling-backend-services-733463952924.asia-south1.run.app/">
+    <meta name="theme-color" content="#070d1e">
+    <meta name="twitter:card" content="summary_large_image">
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -464,5 +473,23 @@
         </div>
     </footer>
 
+    <script>
+        (function() {
+            var isAndroid = /android/i.test(navigator.userAgent || "");
+            if (isAndroid) {
+                var intentUrl = "intent://details?id=com.curling.mobile.game#Intent;scheme=market;package=com.curling.mobile.game;end;";
+                var storeLinks = document.querySelectorAll('a[href*="play.google.com/store/apps"]');
+                storeLinks.forEach(function(link) {
+                    link.addEventListener("click", function(e) {
+                        e.preventDefault();
+                        window.location.href = intentUrl;
+                        setTimeout(function() {
+                            window.location.href = link.getAttribute("href");
+                        }, 750);
+                    });
+                });
+            }
+        })();
+    </script>
 </body>
 </html>

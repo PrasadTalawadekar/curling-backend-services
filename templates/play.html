@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Curling Mobile Game — Available on Google Play</title>
+    
+    <!-- SEO & Social OpenGraph / Twitter Cards for Instagram, WhatsApp, Discord -->
+    <meta name="description" content="Experience realistic curling on mobile! Master physics-based stone delivery, sweeping mechanics, and real-time 1v1 PvP. Download now on Google Play.">
+    <meta property="og:title" content="Curling Mobile Game — The Ultimate Competitive Ice Sport">
+    <meta property="og:description" content="Master realistic stone delivery, dynamic sweeping, and real-time 1v1 PvP multiplayer. Download free on Google Play!">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://curling-backend-services-733463952924.asia-south1.run.app/play">
+    <meta name="theme-color" content="#070d1e">
+    <meta name="twitter:card" content="summary_large_image">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg-primary: #070d1e;
+            --bg-card: rgba(16, 29, 66, 0.75);
+            --bg-card-border: rgba(64, 165, 255, 0.25);
+            --accent-cyan: #00d2ff;
+            --accent-blue: #3a7bd5;
+            --accent-glow: rgba(0, 210, 255, 0.35);
+            --text-main: #f0f6fc;
+            --text-muted: #94a3b8;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem;
+            background-image: 
+                radial-gradient(circle at 50% 20%, rgba(0, 210, 255, 0.12) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(58, 123, 213, 0.1) 0%, transparent 45%);
+        }
+
+        .container {
+            width: 100%;
+            max-width: 440px;
+            background: var(--bg-card);
+            border: 1px solid var(--bg-card-border);
+            border-radius: 24px;
+            padding: 2.5rem 2rem;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), 0 0 30px rgba(0, 210, 255, 0.1);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+        }
+
+        .icon-wrapper {
+            position: relative;
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+            border-radius: 20px;
+            font-size: 2.75rem;
+            box-shadow: 0 10px 25px var(--accent-glow);
+            animation: pulse-glow 2.5s infinite alternate;
+        }
+
+        @keyframes pulse-glow {
+            0% { box-shadow: 0 8px 20px rgba(0, 210, 255, 0.3); transform: scale(1); }
+            100% { box-shadow: 0 12px 30px rgba(0, 210, 255, 0.6); transform: scale(1.03); }
+        }
+
+        h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.75rem;
+            font-weight: 800;
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.5px;
+            background: linear-gradient(180deg, #ffffff 40%, #b4d9ff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.35rem 0.9rem;
+            border-radius: 50px;
+            background: rgba(0, 210, 255, 0.1);
+            border: 1px solid rgba(0, 210, 255, 0.25);
+            color: var(--accent-cyan);
+            font-size: 0.82rem;
+            font-weight: 600;
+            margin-bottom: 1.25rem;
+        }
+
+        .spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(0, 210, 255, 0.3);
+            border-top: 2px solid var(--accent-cyan);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        p.description {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+            line-height: 1.5;
+        }
+
+        .btn-play {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            width: 100%;
+            padding: 1.05rem 1.5rem;
+            border-radius: 14px;
+            background: linear-gradient(135deg, #00c6ff, #0072ff);
+            color: #fff;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 1.05rem;
+            letter-spacing: 0.2px;
+            box-shadow: 0 10px 25px rgba(0, 114, 255, 0.45);
+            transition: all 0.2s ease;
+            cursor: pointer;
+            border: none;
+        }
+
+        .btn-play:hover, .btn-play:active {
+            transform: translateY(-2px);
+            box-shadow: 0 14px 30px rgba(0, 114, 255, 0.65);
+        }
+
+        .btn-play svg {
+            width: 22px;
+            height: 22px;
+            fill: currentColor;
+            flex-shrink: 0;
+        }
+
+        .sub-links {
+            margin-top: 1.75rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .sub-link {
+            color: var(--text-muted);
+            font-size: 0.88rem;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .sub-link:hover {
+            color: var(--accent-cyan);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="icon-wrapper">
+            🥌
+        </div>
+
+        <h1>Curling Mobile Game</h1>
+        
+        <div class="status-badge" id="status-badge">
+            <span class="spinner" id="spinner"></span>
+            <span id="status-text">Redirecting to Google Play...</span>
+        </div>
+
+        <p class="description">
+            Experience authentic curling ice physics, sweeping action, and real-time PvP multiplayer!
+        </p>
+
+        <!-- Main Button: dynamically sets Android Intent or Web Play Store fallback -->
+        <a id="btn-play-action" href="https://play.google.com/store/apps/details?id=com.curling.mobile.game" class="btn-play">
+            <svg viewBox="0 0 24 24"><path d="M3,20.5V3.5C3,2.91 3.34,2.39 3.84,2.15L13.69,12L3.84,21.85C3.34,21.6 3,21.09 3,20.5M16.81,15.12L6.05,21.34L14.54,12.85L16.81,15.12M20.16,10.81C20.5,11.08 20.75,11.5 20.75,12C20.75,12.5 20.5,12.92 20.16,13.19L17.89,14.5L15.39,12L17.89,9.5L20.16,10.81M6.05,2.66L16.81,8.88L14.54,11.15L6.05,2.66Z"/></svg>
+            <span>Open in Google Play</span>
+        </a>
+
+        <div class="sub-links">
+            <a href="/" class="sub-link">Visit Official Game Website →</a>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            var packageId = "com.curling.mobile.game";
+            var webUrl = "https://play.google.com/store/apps/details?id=com.curling.mobile.game";
+            var intentUrl = "intent://details?id=com.curling.mobile.game#Intent;scheme=market;package=com.curling.mobile.game;end;";
+            var marketUrl = "market://details?id=com.curling.mobile.game";
+
+            var userAgent = navigator.userAgent || navigator.vendor || window.opera || "";
+            var isAndroid = /android/i.test(userAgent);
+            var isInstagram = /Instagram/i.test(userAgent);
+            var isFbOrMeta = /FB_IAB|FBAN|FBAV/i.test(userAgent);
+
+            var actionBtn = document.getElementById("btn-play-action");
+            var statusText = document.getElementById("status-text");
+            var spinner = document.getElementById("spinner");
+
+            function launchStore() {
+                if (isAndroid) {
+                    // Inside Instagram / Facebook / Meta WebViews on Android, intent URI breaks out to native Play Store
+                    window.location.href = intentUrl;
+                } else {
+                    window.location.href = webUrl;
+                }
+            }
+
+            if (isAndroid) {
+                // Point button directly to Intent URI
+                actionBtn.setAttribute("href", intentUrl);
+
+                // Auto-trigger redirection after a tiny delay to allow page render
+                setTimeout(function() {
+                    launchStore();
+                }, 150);
+
+                // After 2 seconds, update the status badge to inform user if still inside webview
+                setTimeout(function() {
+                    if (spinner) spinner.style.display = "none";
+                    if (statusText) statusText.innerText = "Tap below to install on Google Play";
+                }, 2000);
+            } else {
+                // Non-Android / Desktop
+                actionBtn.setAttribute("href", webUrl);
+                if (spinner) spinner.style.display = "none";
+                if (statusText) statusText.innerText = "Available on Google Play Store";
+            }
+
+            // Click listener fallback
+            actionBtn.addEventListener("click", function(e) {
+                if (isAndroid) {
+                    e.preventDefault();
+                    window.location.href = intentUrl;
+                    // Fallback to web URL if intent didn't fire within 750ms
+                    setTimeout(function() {
+                        window.location.href = webUrl;
+                    }, 750);
+                }
+            });
+        })();
+    </script>
+</body>
+</html>
