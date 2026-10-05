@@ -40,7 +40,13 @@ async def periodic_leaderboard_sync():
             await asyncio.sleep(60)
 
 import os
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+
+# Static files
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # Cache templates
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
@@ -75,6 +81,13 @@ def get_play_redirect():
     if LANDING_HTML_CONTENT:
         return HTMLResponse(content=LANDING_HTML_CONTENT, status_code=200)
     return HTMLResponse(content="<h1>Curling Mobile Game</h1><p><a href='https://play.google.com/store/apps/details?id=com.curling.mobile.game'>Download on Google Play</a></p>", status_code=200)
+
+@app.get("/favicon.ico", include_in_schema=False)
+def get_favicon():
+    fav_path = os.path.join(STATIC_DIR, "favicon.png")
+    if os.path.exists(fav_path):
+        return FileResponse(fav_path, media_type="image/png")
+    return HTMLResponse(status_code=404)
 
 @app.get("/app-ads.txt", response_class=PlainTextResponse)
 def get_app_ads():
