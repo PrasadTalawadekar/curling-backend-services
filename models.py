@@ -540,6 +540,24 @@ class GdUserMessage(Base):
     expires_at = Column(DateTime, nullable=True)
     target_user_id = Column(Integer, nullable=True)
 
+class GdLocalNotification(Base):
+    __tablename__ = "gd_local_notification"
+    id = Column(Integer, global_id_seq, primary_key=True, index=True)
+    gd_local_notification_name = Column(String(255), index=True)
+    is_enabled = Column(Boolean, default=True)
+    is_gd_local_notification = Column(Boolean, default=True)
+    linked_gd_segment = Column(Integer, ForeignKey("gd_segment.id", ondelete="SET NULL"), nullable=True)
+    notification_title = Column(String(255))
+    notification_body = Column(Text)
+    trigger_type = Column(String(50), default="inactivity_hours")
+    delay_hours = Column(Float, default=24.0)
+    preferred_hour_of_day = Column(Integer, default=19)
+    priority = Column(Integer, default=1)
+    channel_id = Column(String(50), default="curling_reminders")
+    channel_name = Column(String(100), default="Game Reminders & Rewards")
+    deep_link_screen = Column(String(50), nullable=True)
+    badge_count = Column(Integer, default=1)
+
 class GdGameDetails(Base):
     __tablename__ = "gd_game_details"
     id = Column(Integer, global_id_seq, primary_key=True, index=True)
@@ -771,4 +789,92 @@ class AnalysisStore(Base):
     p_amount_spent = Column(Float, default=0.0)
     created_at = Column(DateTime, default=datetime.datetime.utcnow, index=True)
 
+class GdInAppReviewConfig(Base):
+    __tablename__ = "gd_in_app_review_config"
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    gd_in_app_review_config_name = Column(String(255), default="default_review_config")
+    is_enabled = Column(Boolean, default=True)
+    min_games_played = Column(Integer, default=3)
+    min_stars_required = Column(Integer, default=3)
+    cooldown_days_later = Column(Integer, default=7)
+    cooldown_days_dismiss = Column(Integer, default=30)
+    prompt_title = Column(String(255), default="Enjoying Curling Mobile Game?")
+    prompt_message = Column(Text, nullable=True)
+    store_url = Column(String(500), default="market://details?id=com.PrasadGames.CurlingMobileGame")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 
+
+
+
+
+class GdMissionGroup(Base):
+    __tablename__ = "gd_mission_group"
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    gd_mission_group_name = Column(String(255), nullable=True)
+    is_enabled = Column(Boolean, default=True)
+    is_gd_mission_group = Column(Boolean, default=True)
+    gd_mission_group_title = Column(String(255), nullable=True)
+    gd_mission_group_shortcode = Column(String(255), nullable=True)
+    gd_mission_group_start_date = Column(DateTime, nullable=True)
+    gd_mission_group_end_date = Column(DateTime, nullable=True)
+    is_segment = Column(Boolean, default=False)
+    linked_gd_segment = Column(Integer, default=0)
+    linked_gd_game_screen = Column(Integer, default=0)
+    linked_gd_game_screen_for_return = Column(Integer, default=0)
+
+class GdMission(Base):
+    __tablename__ = "gd_mission"
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    gd_mission_name = Column(String(255), nullable=True)
+    is_enabled = Column(Boolean, default=True)
+    is_gd_mission = Column(Boolean, default=True)
+    linked_gd_mission_group = Column(Integer, default=0)
+    gd_mission_description = Column(Text, nullable=True)
+    mission_attribute = Column(String(255), nullable=True)
+    mission_count = Column(Integer, default=1)
+    linked_gd_give_away = Column(Integer, default=0)
+    mission_priority = Column(Integer, default=0)
+
+class UdUserMission(Base):
+    __tablename__ = "ud_user_mission"
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    linked_ud_user_master = Column(Integer, nullable=False, index=True)
+    linked_gd_mission = Column(Integer, nullable=False, index=True)
+    linked_gd_mission_group = Column(Integer, default=0)
+    current_progress = Column(Integer, default=0)
+    is_completed = Column(Boolean, default=False)
+    is_claimed = Column(Boolean, default=False)
+    last_completed_at = Column(DateTime, nullable=True)
+    last_claimed_at = Column(DateTime, nullable=True)
+
+class GdDailyLoginConfig(Base):
+    __tablename__ = "gd_daily_login_config"
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    gd_daily_login_config_name = Column(String(255), nullable=True)
+    is_enabled = Column(Boolean, default=True)
+    is_gd_daily_login_config = Column(Boolean, default=True)
+    gd_daily_login_config_title = Column(String(255), nullable=True)
+    gd_daily_login_config_start_date = Column(DateTime, nullable=True)
+    gd_daily_login_config_end_date = Column(DateTime, nullable=True)
+    is_segment = Column(Boolean, default=False)
+    linked_gd_segment = Column(Integer, default=0)
+
+class GdDailyLoginGiveAway(Base):
+    __tablename__ = "gd_daily_login_give_away"
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    gd_daily_login_give_away_name = Column(String(255), nullable=True)
+    is_enabled = Column(Boolean, default=True)
+    is_gd_daily_login_give_away = Column(Boolean, default=True)
+    linked_gd_daily_login_config = Column(Integer, default=0)
+    linked_gd_give_away = Column(Integer, default=0)
+    probability = Column(Float, default=0.0)
+
+class UdUserDailyLogin(Base):
+    __tablename__ = "ud_user_daily_login"
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    linked_ud_user_master = Column(Integer, nullable=False, index=True)
+    linked_gd_daily_login_config = Column(Integer, default=0)
+    linked_gd_daily_login_give_away = Column(Integer, default=0)
+    linked_gd_give_away = Column(Integer, default=0)
+    claimed_at = Column(DateTime, nullable=True)
